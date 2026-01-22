@@ -68,20 +68,19 @@ fi
 # The script automatically detects whether it's a local drive (UUID) or
 # network drive (contains slashes).
 #
-# IMPORTANT FOR NETWORK DRIVES:  !!!! THIS FUNCTION HAVE NOT BEEN TESTED YET - USE IT AT YOUR OWN RISK !!!!
+# IMPORTANT FOR NETWORK DRIVES:  !!!! THIS FUNCTION HAS NOT BEEN TESTED YET - USE IT AT YOUR OWN RISK !!!!
 # - The network drive must already be mounted before the script is executed
 # - The script checks if the network drive is available and writable
 # - Use the exact path as shown by findmnt
 BACKUP_DRIVE_UUIDS=(
-#	"3cc1f5e4-9370-431c-b89a-ae2254e15e0f"
-#    "12345678-1234-1234-1234-123456789abc"     # Local USB drive (UUID) - REPLACE WITH YOUR UUID
+#    "12345678-1234-1234-1234-123456789abc"     #  NOT USED! Local USB drive (UUID) - REPLACE WITH YOUR UUID
 #    "//your-server.local/backup"               # SMB network drive - REPLACE WITH YOUR PATH
 #	 "192.168.1.100:/mnt/backup"              # NFS network drive example - UNCOMMENT AND EDIT
 )
 
 
-# Password File Location (OPTIONAL)
-# For increased security, this file should be stored on an encrypted volume 
+# Password File Location (OPTIONAL)  !!!! OVERCOMED !!!!
+# For increased security, this file might be stored on an encrypted volume 
 # with root-only access
 # Comment out this line to create backups without encryption
 # PASSWORD_FILE="/root/backup-password.txt"
@@ -479,7 +478,8 @@ function askPass() {
 function defPsw() {
 	backtitle="PASSWORD DEFINITION:"
 	local retcode=0
-	local psw1, psw2
+	local psw1
+	local psw2
 	while test $retcode != 1 && test $retcode != 250
 	do
 		askPass "${bold}Enter the desired password or ${red}leave empty${nc}${bold} for no Password.${nc}\nPassword should have at least ${bold}${red}6${nc} characters long, and may include a combination of ${bold}${red}letters, numbers, and symbols${nc}." 12 50
@@ -730,6 +730,7 @@ function select_device() {
 	echo "UUID: "$UUID
 	IFS="\ " read -a ARR_CHOICE <<< "$CHOICE"
 	#printf '%s\n' "${ARR_CHOICE[@]}" 
+	return 0
 }
 
 #########################################################
@@ -1921,7 +1922,7 @@ function MainBackup() {
 		# printf '%s\n' "${BACKUP_PARAMETERS[@]}"
 		IFS=':' read -r BKP_IMAGE_FILE SOURCE_DEVICE BKP_BASE_NAME <<< "${BACKUP_PARAMETERS[$KEY]}"
 		echo -e "${BLUE}Starting backup: $KEY${NC}"
-		echo "img: "$BKP_IMAGE_FILE " source: " $SOURCE_DEVICE " baseN: " $BKP_BASE_NAME
+		echo "img: "$BKP_IMAGE_FILE " source: " $SOURCE_DEVICE " baseN: " $BKP_BASE_NAME >> $BACKUP_LOG
 		if do_backup "${BACKUP_DIR_PATH}""$BKP_IMAGE_FILE" "$SOURCE_DEVICE"; then
 			# After successful backup: clean up old versions (only if not interrupted)
 			if [[ "$SCRIPT_INTERRUPTED" == false && $ERROR -eq 0 ]]; then
@@ -2184,7 +2185,6 @@ function MainRestore() {
 				echo -e "${RED}Source '$source' (UUID: $source_uuid) is on the same drive as backup target '$backup_drive_path'${NC}"
 				return 1
 			fi
-			exit
 			break;
 		fi
 	done
@@ -2279,15 +2279,14 @@ Minimum space required: ${bold}$((${REF_SIZE}/1048576)) MB (Backup+10%)${nc}\n\
 		echo "$MSG" 2>&1 | tee -a $BACKUP_LOG
 		showMsg "$MSG" 30 70
 	# Store PID of fsarchiver process for signal handler
-	CURRENT_FSARCHIVER_PID=$!
+	#CURRENT_FSARCHIVER_PID=$!
 	
 	# Wait for fsarchiver process
-	wait $CURRENT_FSARCHIVER_PID
+	#wait $CURRENT_FSARCHIVER_PID
 	#local fsarchiver_exit_code=$?
 	#if [ ERROR_MSG ]; then echo 1; else echo 0; fi
-	exit
 	# Reset fsarchiver PID (finished)
-	CURRENT_FSARCHIVER_PID=""
+	#CURRENT_FSARCHIVER_PID=""
 	
 	# Check if script was interrupted
 	if [[ "$SCRIPT_INTERRUPTED" == true ]]; then
