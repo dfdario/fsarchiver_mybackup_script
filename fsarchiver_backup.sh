@@ -1922,7 +1922,7 @@ function MainBackup() {
 		# printf '%s\n' "${BACKUP_PARAMETERS[@]}"
 		IFS=':' read -r BKP_IMAGE_FILE SOURCE_DEVICE BKP_BASE_NAME <<< "${BACKUP_PARAMETERS[$KEY]}"
 		echo -e "${BLUE}Starting backup: $KEY${NC}"
-		echo "img: "$BKP_IMAGE_FILE " source: " $SOURCE_DEVICE " baseN: " $BKP_BASE_NAME >> $BACKUP_LOG
+		echo "img: $BKP_IMAGE_FILE - source: $SOURCE_DEVICE - baseN:  $BKP_BASE_NAME" >> $BACKUP_LOG
 		if do_backup "${BACKUP_DIR_PATH}""$BKP_IMAGE_FILE" "$SOURCE_DEVICE"; then
 			# After successful backup: clean up old versions (only if not interrupted)
 			if [[ "$SCRIPT_INTERRUPTED" == false && $ERROR -eq 0 ]]; then
