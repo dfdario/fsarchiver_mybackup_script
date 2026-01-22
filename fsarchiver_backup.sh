@@ -5,16 +5,15 @@
 # fsarchiver-encrypted-full-system-backup-script-with-email-monitoring-full-system-backup-script-with-email-monitoring
 # 
 #####################################################################
-# AUTOMATED BACKUP SCRIPT WITH FSARCHIVER AND VERSIONING
+# BACKUP SCRIPT WITH FSARCHIVER AND VERSIONING
 #####################################################################
 # This script creates backups of filesystems
 # with fsarchiver and supports:
 # - UUID-based detection of local backup drives
-# - Network drives (SMB/CIFS, NFS) via network path detection
+# - Network drives (SMB/CIFS, NFS) via network path detection !!!! NOT TESTED YET - USE IT AT YOUR OWN RISK !!!!
 # - Intelligent selection of optimal backup drive
 # - Automatic versioning with configurable number of versions to keep
 # - Encrypted archives (optional)
-# - Msg notifications with configurable messages
 # - Exclusion of specific paths from backup
 # - ZSTD compression with configurable level
 # - Backup validation (file size and existence)
@@ -22,17 +21,16 @@
 # - Handling of temporary fsarchiver mount points
 # - Proper handling of interruptions (CTRL+C, SIGTERM, etc.)
 #####################################################################
-###########################################################
 # LOG FILE SETTINGS
-###########################################################
+#####################################################################
 # Backup Log File Location
 BACKUP_LOG="/var/log/fsarchiver-bkp.log"
 if [ -f ${BACKUP_LOG} ] ; then
 	cp ${BACKUP_LOG}{,.bak}
 fi
-###########################################################
+#####################################################################
 # For debug only
-###########################################################
+#####################################################################
 #exec > >(sudo tee -a ${BACKUP_LOG} )
 #DEBUG_FILE="./debuglog.log"
 #if [ -f ${DEBUG_FILE} ] ; then
@@ -70,7 +68,7 @@ fi
 # The script automatically detects whether it's a local drive (UUID) or
 # network drive (contains slashes).
 #
-# IMPORTANT FOR NETWORK DRIVES:
+# IMPORTANT FOR NETWORK DRIVES:  !!!! THIS FUNCTION HAVE NOT BEEN TESTED YET - USE IT AT YOUR OWN RISK !!!!
 # - The network drive must already be mounted before the script is executed
 # - The script checks if the network drive is available and writable
 # - Use the exact path as shown by findmnt
