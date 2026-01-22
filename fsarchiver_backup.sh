@@ -2301,7 +2301,7 @@ Minimum space required: ${bold}$((${REF_SIZE}/1048576)) MB (Backup+10%)${nc}\n\
 		ERROR_MSG+="fsarchiver exit code $fsarchiver_exit_code for device $device\n"
 		showError "$ERROR_MSG" 20 80
 	else
-		showMsg "Restore completed successfully on: {BACKUP_DATE}\nRuntime: {RUNTIME_MIN} minutes and {RUNTIME_SEC} seconds." "15" "60" 
+		showMsg "Restore completed successfully on: ${BACKUP_DATE}\nRuntime: ${RUNTIME_MIN} minutes and ${RUNTIME_SEC} seconds." "15" "60" 
 	fi
 }
 
