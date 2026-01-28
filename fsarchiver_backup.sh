@@ -1,8 +1,9 @@
-#!/bin/bash
+#!/bin/bash -x
 #
-# THIS SCRIPT IS BASED ON THE ONE AVAILABLE AT
-# https://github.com/lexo-ch/
-# fsarchiver-encrypted-full-system-backup-script-with-email-monitoring-full-system-backup-script-with-email-monitoring
+# THIS SCRIPT IS BASED ON THE TWO AVAILABLE AT:
+# https://github.com/lexo-ch/fsarchiver-encrypted-full-system-backup-script-with-email-monitoring
+#	AND
+# https://github.com/AndresDev859674/boot-repair
 # 
 #####################################################################
 # BACKUP SCRIPT WITH FSARCHIVER AND VERSIONING
@@ -32,379 +33,430 @@ fi
 # For debug only
 #####################################################################
 #exec > >(sudo tee -a ${BACKUP_LOG} )
-#DEBUG_FILE="./debuglog.log"
-#if [ -f ${DEBUG_FILE} ] ; then
-#	cp ${DEBUG_FILE}{,.bak}
-#fi
+DEBUG_FILE="./debuglog.log"
+if [ -f ${DEBUG_FILE} ] ; then
+	cp ${DEBUG_FILE}{,.bak}
+fi
 #exec 2> >(tee -a ${DEBUG_FILE} >&2) # Add to existing
-#exec &> >(sudo tee "$DEBUG_FILE")
+exec &> >(sudo tee "$DEBUG_FILE")
 #####################################################################
-# USER CONFIGURATION
-#####################################################################
+function user_configuration() {
+	#####################################################################
+	# USER CONFIGURATION
+	#####################################################################
 
-# Backup Parameters Configuration
-# Format: BACKUP_PARAMETERS["Backup Name"]="Backup-File-Base-Name:Mount-Point or Device-Path for Backup"
-# IMPORTANT: The backup file name is only the base name. The script automatically adds
-# a timestamp for versioning (e.g. backup-efi-20250625-123456.fsa)
+	# Backup Parameters Configuration
+	# Format: BACKUP_PARAMETERS["Backup Name"]="Backup-File-Base-Name:Mount-Point or Device-Path for Backup"
+	# IMPORTANT: The backup file name is only the base name. The script automatically adds
+	# a timestamp for versioning (e.g. backup-efi-20250625-123456.fsa)
 
-#declare -A BACKUP_PARAMETERS
-#BACKUP_PARAMETERS["EFI"]="backup-efi:/boot/efi"
-#BACKUP_PARAMETERS["System"]="backup-system:/"
+	#declare -A BACKUP_PARAMETERS
+	#BACKUP_PARAMETERS["EFI"]="backup-efi:/boot/efi"
+	#BACKUP_PARAMETERS["System"]="backup-system:/"
 
-# BACKUP_PARAMETERS["DATA"]="backup-data:/media/username/DATA"  # Example - commented out
+	# BACKUP_PARAMETERS["DATA"]="backup-data:/media/username/DATA"  # Example - commented out
 
-# UUID array for local backup drives and network paths for network drives
-# 
-# LOCAL DRIVES:
-# Add the UUIDs of your local backup drives here
-# To find the UUID of a drive, use the command:
-# lsblk -o NAME,UUID,LABEL,SIZE,VENDOR,MODEL,MOUNTPOINT
-#
-# NETWORK DRIVES:
-# Add the network paths of your mounted network drives here
-# Format for SMB/CIFS: "//server/share" or "//ip-address/share"
-# Format for NFS: "server:/path" or "ip-address:/path"
-# 
-# The script automatically detects whether it's a local drive (UUID) or
-# network drive (contains slashes).
-#
-# IMPORTANT FOR NETWORK DRIVES:  !!!! THIS FUNCTION HAS NOT BEEN TESTED YET - USE IT AT YOUR OWN RISK !!!!
-# - The network drive must already be mounted before the script is executed
-# - The script checks if the network drive is available and writable
-# - Use the exact path as shown by findmnt
-BACKUP_DRIVE_UUIDS=(
-#    "12345678-1234-1234-1234-123456789abc"     #  NOT USED! Local USB drive (UUID) - REPLACE WITH YOUR UUID
-#    "//your-server.local/backup"               # SMB network drive - REPLACE WITH YOUR PATH
-#	 "192.168.1.100:/mnt/backup"              # NFS network drive example - UNCOMMENT AND EDIT
-)
+	# UUID array for local backup drives and network paths for network drives
+	# 
+	# LOCAL DRIVES:
+	# Add the UUIDs of your local backup drives here
+	# To find the UUID of a drive, use the command:
+	# lsblk -o NAME,UUID,LABEL,SIZE,VENDOR,MODEL,MOUNTPOINT
+	#
+	# NETWORK DRIVES:
+	# Add the network paths of your mounted network drives here
+	# Format for SMB/CIFS: "//server/share" or "//ip-address/share"
+	# Format for NFS: "server:/path" or "ip-address:/path"
+	# 
+	# The script automatically detects whether it's a local drive (UUID) or
+	# network drive (contains slashes).
+	#
+	# IMPORTANT FOR NETWORK DRIVES:  !!!! THIS FUNCTION HAS NOT BEEN TESTED YET - USE IT AT YOUR OWN RISK !!!!
+	# - The network drive must already be mounted before the script is executed
+	# - The script checks if the network drive is available and writable
+	# - Use the exact path as shown by findmnt
+	#
+	BACKUP_DRIVE_UUIDS=(
+	#    "12345678-1234-1234-1234-123456789abc"     # NOT USED! Local USB drive (UUID) - REPLACE WITH YOUR UUID
+	#    "//your-server.local/backup"               # SMB network drive - REPLACE WITH YOUR PATH
+	#	 "192.168.1.100:/mnt/backup"              # NFS network drive example - UNCOMMENT AND EDIT
+	)
 
+	# Password File Location (OPTIONAL)  !!!! OVERCOMED !!!!
+	# For increased security, this file might be stored on an encrypted volume 
+	# with root-only access
+	# Comment out this line to create backups without encryption
+	# PASSWORD_FILE="/root/backup-password.txt"
+	# Paths to exclude from backup
+	# 
+	# IMPORTANT: HOW FSARCHIVER EXCLUSIONS WORK:
+	# =====================================================
+	# 
+	# fsarchiver uses shell wildcards (glob patterns) for exclusions.
+	# The patterns are matched against the FULL PATH from the ROOT of the backed up filesystem.
+	# 
+	# CASE-SENSITIVITY:
+	# ==========================================
+	# The patterns are CASE-SENSITIVE!
+	# - "*/cache/*" does NOT match "*/Cache/*" or "*/CACHE/*"
+	# - For both variants: "*/[Cc]ache/*" or use separate patterns
+	# - Common variants: cache/Cache, temp/Temp, tmp/Tmp, log/Log
+	# 
+	# EXAMPLES:
+	# ---------
+	# For a path like: /home/user/.var/app/com.adobe.Reader/cache/fontconfig/file.txt
+	# 
+	# ✗ WRONG: "/cache/*"           - Does NOT match, as /cache is not at root
+	# ✗ WRONG: "cache/*"            - Does NOT match, as it doesn't cover the full path  
+	# ✓ CORRECT: "*/cache/*"        - Matches ANY cache directory at any level
+	# ✓ CORRECT: "/home/*/cache/*"  - Matches cache directories in any user directory
+	# ✓ CORRECT: "*/.var/*/cache/*" - Matches special .var application caches
+	# ✓ CORRECT: "*[Cc]ache*"       - Matches both "cache" and "Cache"
+	# 
+	# MORE PATTERN EXAMPLES:
+	# -------------------------
+	# "*.tmp"              - All .tmp files
+	# "/tmp/*"             - Everything in /tmp directory
+	# "*/logs/*"           - All logs directories at any level
+	# "/var/log/*"         - Everything in /var/log
+	# "*/.cache/*"         - All .cache directories (common in user directories)
+	# "*/Trash/*"          - Trash directories
+	# "*~"                 - Backup files (ending with ~)
+	# "*/tmp/*"            - All tmp directories
+	# "*/.thumbnails/*"    - Thumbnail caches
+	# 
+	# PERFORMANCE TIP:
+	# -----------------
+	# Specific patterns are more efficient than very general patterns.
+	# Use "*/cache/*" instead of "*cache*" when possible.
+	# Use general patterns before specific patterns.
+	#
+	# CONSOLIDATED LINUX EXCLUSION LIST:
+	# =====================================
+	EXCLUDE_PATHS=(
+		# ===========================================
+		# CACHE DIRECTORIES (ALL VARIANTS)
+		# ===========================================
+		
+		# General cache directories (covers most browsers and apps)
+	#    "*/cache/*"                     # All cache directories (lowercase)
+	#    "*/Cache/*"                     # All Cache directories (uppercase)  
+	#    "*/.cache/*"                    # Hidden cache directories (Linux standard)
+	#    "*/.Cache/*"                    # Hidden Cache directories (uppercase)
+	#    "*/caches/*"                    # Plural form cache directories
+	#    "*/Caches/*"                    # Plural form Cache directories (uppercase)
+	#    "*/cache2/*"                    # Browser Cache2 directories (Firefox, etc.)
+		
+		# Specific cache directories (more robust patterns)
+	#    "/root/.cache/*"                # Root user cache (specific)
+	#    "/home/*/.cache/*"              # All user cache directories (specific)
+	#    "*/mesa_shader_cache/*"         # Mesa GPU shader cache
+		
+		# Special cache types
+	#    "*/.thumbnails/*"               # Thumbnail caches
+	#    "*/thumbnails/*"                # Thumbnail caches (without dot)
+	#    "*/GrShaderCache/*"             # Graphics shader cache (browser/games)
+	#    "*/GPUCache/*"                  # GPU cache (browser)
+	#    "*/ShaderCache/*"               # Shader cache (games/graphics)
+	#    "*/Code\ Cache/*"               # Code cache (Chrome/Chromium/Electron apps)
+		
+		# ===========================================
+		# TEMPORARY DIRECTORIES AND FILES
+		# ===========================================
+		
+		# Standard temporary directories
+		"/tmp/*"                        # Temporary files
+		"/var/tmp/*"                    # Variable temporary files
+		"*/tmp/*"                       # All tmp directories
+		"*/Tmp/*"                       # All Tmp directories (uppercase)
+		"*/temp/*"                      # All temp directories
+		"*/Temp/*"                      # All Temp directories (uppercase)
+		"*/TEMP/*"                      # All TEMP directories (uppercase)
+		"*/.temp/*"                     # Hidden temp directories
+		"*/.Temp/*"                     # Hidden Temp directories (uppercase)
+		
+		# Browser-specific temporary directories
+	#    "*/Greaselion/Temp/*"           # Brave browser Greaselion temp directories
+	#    "*/BraveSoftware/*/Cache/*"     # Brave browser cache
+	#    "*/BraveSoftware/*/cache/*"     # Brave browser cache (lowercase)
+		
+		# Temporary files
+		"*.tmp"                         # Temporary files
+		"*.temp"                        # Temporary files
+		"*.TMP"                         # Temporary files (uppercase)
+		"*.TEMP"                        # Temporary files (uppercase)
+		
+		# ===========================================
+		# LOG DIRECTORIES AND FILES
+		# ===========================================
+		
+		# System logs
+		"/var/log/*"                    # System log files (general)
+		"/var/log/journal/*"            # SystemD journal logs (can become very large)
+		"*/logs/*"                      # All log directories
+		"*/Logs/*"                      # All Log directories (uppercase)
+		
+		# Log files
+		"*.log"                         # Log files
+		"*.log.*"                       # Rotated log files
+		"*.LOG"                         # Log files (uppercase)
+		"*/.xsession-errors*"           # X-session logs
+		"*/.wayland-errors*"            # Wayland session logs
+		
+		# ===========================================
+		# SYSTEM CACHE AND SPOOL
+		# ===========================================
+		
+		# NOTE: All /var/cache/* patterns are covered by */cache/*
+		"/var/spool/*"                  # Spool directories (print jobs, etc.)
+		
+		# ===========================================
+		# MOUNT POINTS AND VIRTUAL FILESYSTEMS
+		# ===========================================
+		
+		# External drives and mount points
+		"/media/*"                      # External drives
+		"/mnt/*"                        # Mount points
+		"/run/media/*"                  # Modern mount points
+		
+		# Virtual filesystems (should not be in backups)
+		"/proc/*"                       # Process information
+		"/sys/*"                        # System information  
+		"/dev/*"                        # Device files
+		"/run/*"                        # Runtime information
+		"/var/run/*"                    # Runtime variable files (usually symlink to /run)
+		"/var/lock/*"                   # Lock files (usually symlink to /run/lock)
+		
+		# ===========================================
+		# DEVELOPMENT AND BUILD DIRECTORIES
+		# ===========================================
+		
+		# Node.js and JavaScript
+		"*/node_modules/*"              # Node.js packages
+		"*/.npm/*"                      # NPM cache
+		"*/.yarn/*"                     # Yarn cache
+		
+		# Rust
+	#    "*/target/debug/*"              # Rust debug builds
+	#    "*/target/release/*"            # Rust release builds
+	#    "*/.cargo/registry/*"           # Rust cargo registry cache
+		
+		# Go
+	#    "*/.go/pkg/*"                   # Go package cache
+		
+		# Build directories (general)
+	#    "*/target/*"                    # Rust/Java build directories (general)
+	#    "*/build/*"                     # Build directories
+	#    "*/Build/*"                     # Build directories (uppercase)
+	#    "*/.gradle/*"                   # Gradle cache
+	#    "*/.m2/repository/*"            # Maven repository
+		
+		# Python
+	#    "*/__pycache__/*"               # Python cache
+	#    "*/.pytest_cache/*"             # Pytest cache
+	#    "*.pyc"                         # Python compiled files
+		
+		# ===========================================
+		# CONTAINERS AND VIRTUALIZATION
+		# ===========================================
+		
+	#    "/var/lib/docker/*"             # Docker data
+	#    "/var/lib/containers/*"         # Podman/container data
+		
+		# ===========================================
+		# FLATPAK AND SNAP CACHE DIRECTORIES
+		# ===========================================
+		
+		# Flatpak repository and cache (safe to exclude - can be re-downloaded)
+	#    "/var/lib/flatpak/repo/*"       # OSTree repository objects (like Git objects)
+	#    "/var/lib/flatpak/.refs/*"      # OSTree references
+	#    "/var/lib/flatpak/system-cache/*" # System cache
+	#    "/var/lib/flatpak/user-cache/*" # User cache
+		
+		# Flatpak app-specific caches (user directories)
+	#    "/home/*/.var/app/*/cache/*"    # App-specific caches
+	#    "/home/*/.var/app/*/Cache/*"    # App-specific caches (uppercase)
+	#    "/home/*/.var/app/*/.cache/*"   # Hidden caches in apps
+	#    "*/.var/app/*/cache/*"          # All Flatpak app caches
+	#    "*/.var/app/*/Cache/*"          # All Flatpak app caches (uppercase)
+		
+		# Snap cache directories
+	#    "/var/lib/snapd/cache/*"        # Snap cache
+	#    "/home/*/snap/*/common/.cache/*" # Snap app caches
+		
+		# OPTIONAL - If you do not want to reinstall Flatpak apps, 
+		# comment out these lines:
+		# "/var/lib/flatpak/runtime/*"  # Runtime environments (can be reinstalled)
+		# "/var/lib/flatpak/app/*"      # Installed apps (can be reinstalled)
+		
+		# ===========================================
+		# BACKUP AND OLD FILES
+		# ===========================================
+		
+		# Backup files
+		"*~"                            # Backup files (editor backups - always exclude)
+		
+		# Backup files (OPTIONAL - uncomment if backup files should be kept)
+		# "*.bak"                       # Backup files
+		# "*.BAK"                       # Backup files (uppercase)
+		# "*.backup"                    # Backup files
+		# "*.BACKUP"                    # Backup files (uppercase)
+		# "*.old"                       # Old files
+		# "*.OLD"                       # Old files (uppercase)
+		
+		# ===========================================
+		# TRASH (OPTIONAL - commented out, as trash should be backed up by default)
+		# ===========================================
+		
+		# NOTE: Trash directories are NOT excluded by default,
+		# as they may contain important deleted files that need to be restored.
+		# Uncomment these lines only if you are sure the trash
+		# should not be backed up:
+		
+		# "*/.Trash/*"                  # Trash
+		# "*/Trash/*"                   # Trash (without dot)
+		# "*/.local/share/Trash/*"      # Trash (modern Linux location)
+		# "*/RecycleBin/*"              # Windows-style trash (if present)
+		
+		# ===========================================
+		# SWAP FILES
+		# ===========================================
+		
+		"/swapfile"                     # Standard swap file
+		"/swap.img"                     # Alternative swap file
+		"*.swap"                        # Swap files
+		"*.SWAP"                        # Swap files (uppercase)
+		
+		# ===========================================
+		# OTHER COMMON EXCLUSIONS
+		# ===========================================
+		
+		# Other common exclusions
+		# NOTE: Specific Flatpak/Snap cache patterns are redundant, as already covered by 
+		# */cache/* and */.cache/*
+		
+		# Lock and socket files
+	#    "*/.X11-unix/*"                 # X11 sockets
+	#    "*/lost+found/*"                # Lost+found directories
+	#    "*/.gvfs/*"                     # GVFS mount points
+		
+		# Multimedia caches
+	#    "*/.dvdcss/*"                   # DVD CSS cache
+	#    "*/.mplayer/*"                  # MPlayer cache
+	#    "*/.adobe/Flash_Player/*"       # Flash Player cache
+	   
+		# Encrypted directories when unmounted
+	#    "*/.ecryptfs/*"                 # eCryptFS
+		
+		# ===========================================
+		# LARGE IMAGE FILES (OPTIONAL - commented out as they can be very large)
+		# ===========================================
+		
+		# NOTE: These patterns are commented out, as image files often
+		# contain important data. Uncomment these only if you are sure
+		# these files should not be backed up:
+		
+		# "*.iso"                       # ISO image files 
+		# "*.img"                       # Disk image files
+		# "*.vdi"                       # VirtualBox images (can be very large)
+		# "*.vmdk"                      # VMware images (can be very large)
+		
+		# Games and Steam (specific caches/logs not covered by */cache/*)
+	#    "*/.steam/steam/logs/*"         # Steam logs
+	#    "*/.steam/steam/dumps/*"        # Steam crash dumps
+	#    "*/.local/share/Steam/logs/*"   # Steam logs (alternative location)
+	)
 
-# Password File Location (OPTIONAL)  !!!! OVERCOMED !!!!
-# For increased security, this file might be stored on an encrypted volume 
-# with root-only access
-# Comment out this line to create backups without encryption
-# PASSWORD_FILE="/root/backup-password.txt"
+	#####################################################################
+	# SYSTEM FUNCTIONS AND HELPER FUNCTIONS
+	#####################################################################
 
-# Message Content Configuration
-# Available placeholders: {BACKUP_DATE}, {RUNTIME_MIN}, {RUNTIME_SEC}, {ERROR_DETAILS}
-MSG_BODY_SUCCESS="Backup completed successfully on: {BACKUP_DATE}\nRuntime: {RUNTIME_MIN} minutes and {RUNTIME_SEC} seconds."
-MSG_BODY_ERROR="Backup failed!\n\nBackup start: {BACKUP_DATE}\nRuntime: {RUNTIME_MIN} minutes and {RUNTIME_SEC} seconds.\n\nERROR REPORT:\n{ERROR_DETAILS}"
-MSG_BODY_INTERRUPTED="Backup was interrupted!\n\nBackup start: {BACKUP_DATE}\nInterrupted after: {RUNTIME_MIN} minutes and {RUNTIME_SEC} seconds.\n\nThe backup was terminated by user intervention (CTRL+C) or system signal.\nIncomplete backup files have been removed."
+	# Color codes for formatted output
+	RED='\033[1;93;41m'     # Bold yellow text on red background for maximum visibility of errors
+	GREEN='\033[1;92m'
+	YELLOW='\033[1;33;104m'
+	BLUE='\033[0;34;106m'
+	CYAN='\e[36m'
+	NC='\033[0m' # No Color
+	# Color codes for formatted dialog
+	nc="\Zn" # Reset all Styling
+	bold="\Zb" # Start Bold
+	nbold="\ZB" # End Bold
+	rev="\Zr" # Start Reverse
+	nrev="\ZR" # End Reverse
+	und="\Zu" # Start Underline
+	nund="\ZU" # End Underline
+	black="\Z0" # ANSI Colors: Black (Default)
+	red="\Z1" # ANSI Colors: Red
+	green="\Z2" # ANSI Colors: Green
+	yellow="\Z3" # ANSI Colors: Yellow
+	blue="\Z4" # ANSI Colors: Blue
+	magenta="\Z5" # ANSI Colors: Magenta
+	cyan="\Z6" # ANSI Colors: Cyan
+	white="\Z7" # ANSI Colors: White
 
-# Paths to exclude from backup
-# 
-# IMPORTANT: HOW FSARCHIVER EXCLUSIONS WORK:
-# =====================================================
-# 
-# fsarchiver uses shell wildcards (glob patterns) for exclusions.
-# The patterns are matched against the FULL PATH from the ROOT of the backed up filesystem.
-# 
-# CASE-SENSITIVITY:
-# ==========================================
-# The patterns are CASE-SENSITIVE!
-# - "*/cache/*" does NOT match "*/Cache/*" or "*/CACHE/*"
-# - For both variants: "*/[Cc]ache/*" or use separate patterns
-# - Common variants: cache/Cache, temp/Temp, tmp/Tmp, log/Log
-# 
-# EXAMPLES:
-# ---------
-# For a path like: /home/user/.var/app/com.adobe.Reader/cache/fontconfig/file.txt
-# 
-# ✗ WRONG: "/cache/*"           - Does NOT match, as /cache is not at root
-# ✗ WRONG: "cache/*"            - Does NOT match, as it doesn't cover the full path  
-# ✓ CORRECT: "*/cache/*"        - Matches ANY cache directory at any level
-# ✓ CORRECT: "/home/*/cache/*"  - Matches cache directories in any user directory
-# ✓ CORRECT: "*/.var/*/cache/*" - Matches special .var application caches
-# ✓ CORRECT: "*[Cc]ache*"       - Matches both "cache" and "Cache"
-# 
-# MORE PATTERN EXAMPLES:
-# -------------------------
-# "*.tmp"              - All .tmp files
-# "/tmp/*"             - Everything in /tmp directory
-# "*/logs/*"           - All logs directories at any level
-# "/var/log/*"         - Everything in /var/log
-# "*/.cache/*"         - All .cache directories (common in user directories)
-# "*/Trash/*"          - Trash directories
-# "*~"                 - Backup files (ending with ~)
-# "*/tmp/*"            - All tmp directories
-# "*/.thumbnails/*"    - Thumbnail caches
-# 
-# PERFORMANCE TIP:
-# -----------------
-# Specific patterns are more efficient than very general patterns.
-# Use "*/cache/*" instead of "*cache*" when possible.
-# Use general patterns before specific patterns.
-#
-# CONSOLIDATED LINUX EXCLUSION LIST:
-# =====================================
-EXCLUDE_PATHS=(
-    # ===========================================
-    # CACHE DIRECTORIES (ALL VARIANTS)
-    # ===========================================
-    
-    # General cache directories (covers most browsers and apps)
-#    "*/cache/*"                     # All cache directories (lowercase)
-#    "*/Cache/*"                     # All Cache directories (uppercase)  
-#    "*/.cache/*"                    # Hidden cache directories (Linux standard)
-#    "*/.Cache/*"                    # Hidden Cache directories (uppercase)
-#    "*/caches/*"                    # Plural form cache directories
-#    "*/Caches/*"                    # Plural form Cache directories (uppercase)
-#    "*/cache2/*"                    # Browser Cache2 directories (Firefox, etc.)
-    
-    # Specific cache directories (more robust patterns)
-#    "/root/.cache/*"                # Root user cache (specific)
-#    "/home/*/.cache/*"              # All user cache directories (specific)
-#    "*/mesa_shader_cache/*"         # Mesa GPU shader cache
-    
-    # Special cache types
-#    "*/.thumbnails/*"               # Thumbnail caches
-#    "*/thumbnails/*"                # Thumbnail caches (without dot)
-#    "*/GrShaderCache/*"             # Graphics shader cache (browser/games)
-#    "*/GPUCache/*"                  # GPU cache (browser)
-#    "*/ShaderCache/*"               # Shader cache (games/graphics)
-#    "*/Code\ Cache/*"               # Code cache (Chrome/Chromium/Electron apps)
-    
-    # ===========================================
-    # TEMPORARY DIRECTORIES AND FILES
-    # ===========================================
-    
-    # Standard temporary directories
-    "/tmp/*"                        # Temporary files
-    "/var/tmp/*"                    # Variable temporary files
-    "*/tmp/*"                       # All tmp directories
-    "*/Tmp/*"                       # All Tmp directories (uppercase)
-    "*/temp/*"                      # All temp directories
-    "*/Temp/*"                      # All Temp directories (uppercase)
-    "*/TEMP/*"                      # All TEMP directories (uppercase)
-    "*/.temp/*"                     # Hidden temp directories
-    "*/.Temp/*"                     # Hidden Temp directories (uppercase)
-    
-    # Browser-specific temporary directories
-#    "*/Greaselion/Temp/*"           # Brave browser Greaselion temp directories
-#    "*/BraveSoftware/*/Cache/*"     # Brave browser cache
-#    "*/BraveSoftware/*/cache/*"     # Brave browser cache (lowercase)
-    
-    # Temporary files
-    "*.tmp"                         # Temporary files
-    "*.temp"                        # Temporary files
-    "*.TMP"                         # Temporary files (uppercase)
-    "*.TEMP"                        # Temporary files (uppercase)
-    
-    # ===========================================
-    # LOG DIRECTORIES AND FILES
-    # ===========================================
-    
-    # System logs
-    "/var/log/*"                    # System log files (general)
-    "/var/log/journal/*"            # SystemD journal logs (can become very large)
-    "*/logs/*"                      # All log directories
-    "*/Logs/*"                      # All Log directories (uppercase)
-    
-    # Log files
-    "*.log"                         # Log files
-    "*.log.*"                       # Rotated log files
-    "*.LOG"                         # Log files (uppercase)
-    "*/.xsession-errors*"           # X-session logs
-    "*/.wayland-errors*"            # Wayland session logs
-    
-    # ===========================================
-    # SYSTEM CACHE AND SPOOL
-    # ===========================================
-    
-    # NOTE: All /var/cache/* patterns are covered by */cache/*
-    "/var/spool/*"                  # Spool directories (print jobs, etc.)
-    
-    # ===========================================
-    # MOUNT POINTS AND VIRTUAL FILESYSTEMS
-    # ===========================================
-    
-    # External drives and mount points
-    "/media/*"                      # External drives
-    "/mnt/*"                        # Mount points
-    "/run/media/*"                  # Modern mount points
-    
-    # Virtual filesystems (should not be in backups)
-    "/proc/*"                       # Process information
-    "/sys/*"                        # System information  
-    "/dev/*"                        # Device files
-    "/run/*"                        # Runtime information
-    "/var/run/*"                    # Runtime variable files (usually symlink to /run)
-    "/var/lock/*"                   # Lock files (usually symlink to /run/lock)
-    
-    # ===========================================
-    # DEVELOPMENT AND BUILD DIRECTORIES
-    # ===========================================
-    
-    # Node.js and JavaScript
-    "*/node_modules/*"              # Node.js packages
-    "*/.npm/*"                      # NPM cache
-    "*/.yarn/*"                     # Yarn cache
-    
-    # Rust
-#    "*/target/debug/*"              # Rust debug builds
-#    "*/target/release/*"            # Rust release builds
-#    "*/.cargo/registry/*"           # Rust cargo registry cache
-    
-    # Go
-#    "*/.go/pkg/*"                   # Go package cache
-    
-    # Build directories (general)
-#    "*/target/*"                    # Rust/Java build directories (general)
-#    "*/build/*"                     # Build directories
-#    "*/Build/*"                     # Build directories (uppercase)
-#    "*/.gradle/*"                   # Gradle cache
-#    "*/.m2/repository/*"            # Maven repository
-    
-    # Python
-#    "*/__pycache__/*"               # Python cache
-#    "*/.pytest_cache/*"             # Pytest cache
-#    "*.pyc"                         # Python compiled files
-    
-    # ===========================================
-    # CONTAINERS AND VIRTUALIZATION
-    # ===========================================
-    
-#    "/var/lib/docker/*"             # Docker data
-#    "/var/lib/containers/*"         # Podman/container data
-    
-    # ===========================================
-    # FLATPAK AND SNAP CACHE DIRECTORIES
-    # ===========================================
-    
-    # Flatpak repository and cache (safe to exclude - can be re-downloaded)
-#    "/var/lib/flatpak/repo/*"       # OSTree repository objects (like Git objects)
-#    "/var/lib/flatpak/.refs/*"      # OSTree references
-#    "/var/lib/flatpak/system-cache/*" # System cache
-#    "/var/lib/flatpak/user-cache/*" # User cache
-    
-    # Flatpak app-specific caches (user directories)
-#    "/home/*/.var/app/*/cache/*"    # App-specific caches
-#    "/home/*/.var/app/*/Cache/*"    # App-specific caches (uppercase)
-#    "/home/*/.var/app/*/.cache/*"   # Hidden caches in apps
-#    "*/.var/app/*/cache/*"          # All Flatpak app caches
-#    "*/.var/app/*/Cache/*"          # All Flatpak app caches (uppercase)
-    
-    # Snap cache directories
-#    "/var/lib/snapd/cache/*"        # Snap cache
-#    "/home/*/snap/*/common/.cache/*" # Snap app caches
-    
-    # OPTIONAL - If you do not want to reinstall Flatpak apps, 
-    # comment out these lines:
-    # "/var/lib/flatpak/runtime/*"  # Runtime environments (can be reinstalled)
-    # "/var/lib/flatpak/app/*"      # Installed apps (can be reinstalled)
-    
-    # ===========================================
-    # BACKUP AND OLD FILES
-    # ===========================================
-    
-    # Backup files
-    "*~"                            # Backup files (editor backups - always exclude)
-    
-    # Backup files (OPTIONAL - uncomment if backup files should be kept)
-    # "*.bak"                       # Backup files
-    # "*.BAK"                       # Backup files (uppercase)
-    # "*.backup"                    # Backup files
-    # "*.BACKUP"                    # Backup files (uppercase)
-    # "*.old"                       # Old files
-    # "*.OLD"                       # Old files (uppercase)
-    
-    # ===========================================
-    # TRASH (OPTIONAL - commented out, as trash should be backed up by default)
-    # ===========================================
-    
-    # NOTE: Trash directories are NOT excluded by default,
-    # as they may contain important deleted files that need to be restored.
-    # Uncomment these lines only if you are sure the trash
-    # should not be backed up:
-    
-    # "*/.Trash/*"                  # Trash
-    # "*/Trash/*"                   # Trash (without dot)
-    # "*/.local/share/Trash/*"      # Trash (modern Linux location)
-    # "*/RecycleBin/*"              # Windows-style trash (if present)
-    
-    # ===========================================
-    # SWAP FILES
-    # ===========================================
-    
-    "/swapfile"                     # Standard swap file
-    "/swap.img"                     # Alternative swap file
-    "*.swap"                        # Swap files
-    "*.SWAP"                        # Swap files (uppercase)
-    
-    # ===========================================
-    # OTHER COMMON EXCLUSIONS
-    # ===========================================
-    
-    # Other common exclusions
-    # NOTE: Specific Flatpak/Snap cache patterns are redundant, as already covered by 
-    # */cache/* and */.cache/*
-    
-    # Lock and socket files
-#    "*/.X11-unix/*"                 # X11 sockets
-#    "*/lost+found/*"                # Lost+found directories
-#    "*/.gvfs/*"                     # GVFS mount points
-    
-    # Multimedia caches
-#    "*/.dvdcss/*"                   # DVD CSS cache
-#    "*/.mplayer/*"                  # MPlayer cache
-#    "*/.adobe/Flash_Player/*"       # Flash Player cache
-   
-    # Encrypted directories when unmounted
-#    "*/.ecryptfs/*"                 # eCryptFS
-    
-    # ===========================================
-    # LARGE IMAGE FILES (OPTIONAL - commented out as they can be very large)
-    # ===========================================
-    
-    # NOTE: These patterns are commented out, as image files often
-    # contain important data. Uncomment these only if you are sure
-    # these files should not be backed up:
-    
-    # "*.iso"                       # ISO image files 
-    # "*.img"                       # Disk image files
-    # "*.vdi"                       # VirtualBox images (can be very large)
-    # "*.vmdk"                      # VMware images (can be very large)
-    
-    # Games and Steam (specific caches/logs not covered by */cache/*)
-#    "*/.steam/steam/logs/*"         # Steam logs
-#    "*/.steam/steam/dumps/*"        # Steam crash dumps
-#    "*/.local/share/Steam/logs/*"   # Steam logs (alternative location)
-)
+	# Global variables for error handling and signal handling
+	ERROR=0
+	ERROR_MSG=""
+	SCRIPT_INTERRUPTED=false
+	CURRENT_BACKUP_FILE=""
+	CURRENT_FSARCHIVER_PID=""
 
-#####################################################################
-# SYSTEM FUNCTIONS AND HELPER FUNCTIONS
-#####################################################################
+	############################################################
+	# Check for necessary programs and eventually install them
+	############################################################	
 
-# Color codes for formatted output
-RED='\033[1;93;41m'     # Bold yellow text on red background for maximum visibility of errors
-GREEN='\033[1;92m'
-YELLOW='\033[1;33;104m'
-BLUE='\033[0;34;106m'
-NC='\033[0m' # No Color
-# Color codes for formatted dialog
-nc="\Zn" # Reset all Styling
-bold="\Zb" # Start Bold
-nbold="\ZB" # End Bold
-rev="\Zr" # Start Reverse
-nrev="\ZR" # End Reverse
-und="\Zu" # Start Underline
-nund="\ZU" # End Underline
-black="\Z0" # ANSI Colors: Black (Default)
-red="\Z1" # ANSI Colors: Red
-green="\Z2" # ANSI Colors: Green
-yellow="\Z3" # ANSI Colors: Yellow
-blue="\Z4" # ANSI Colors: Blue
-magenta="\Z5" # ANSI Colors: Magenta
-cyan="\Z6" # ANSI Colors: Cyan
-white="\Z7" # ANSI Colors: White
+	echo -e "\n${CYAN}>>> Check if necessary programs are installed...${NC}"
+	local pkg=()
 
-# Global variables for error handling and signal handling
-ERROR=0
-ERROR_MSG=""
-SCRIPT_INTERRUPTED=false
-CURRENT_BACKUP_FILE=""
-CURRENT_FSARCHIVER_PID=""
+	if ! command -v fsarchiver &> /dev/null; then pkg=("fsarchiver" ); fi
+	if ! command -v dialog &> /dev/null; then pkg+=("dialog" ); fi
 
+	if [[ ${#pkg[@]} > 0 ]]; then
+		local distro=""
+		if [ -f /etc/os-release ]; then
+			distro=$(awk -F= '$1=="ID" { print $2 }' /etc/os-release | tr -d '"')
+			echo -e "  ${GREEN}Distribution detected in ${root_part}:${NC} ${distro^}"
+			
+			local pkg_manager_cmd=""
+			# Distribution-specific settings
+			case "$distro" in
+				arch|endeavouros|manjaro)
+					pkg_manager_cmd="pacman -Sy --noconfirm ${pkg[@]}"
+					;;
+				debian|ubuntu|linuxmint)
+					pkg_manager_cmd="apt-get update && apt-get install --reinstall -y ${pkg[@]}"
+					;;
+				fedora|centos|rhel)
+					pkg_manager_cmd="dnf reinstall -y ${pkg[@]}"
+					;;
+				opensuse*|sles)
+					pkg_manager_cmd="zypper install --force ${pkg[@]}"
+					;;
+				*)
+					echo -e "${RED}Error: Distribution '${distro}' is not supported by this script.${NC}"
+					showError "Distribution '${distro}' is not supported by this script and useuful programs are needed to work.\n\n   YOU HAVE TO MANUALLY INSTALL: '${pkg[@]}' BEFORE RUNNING IT AGAIN." 13 60
+					exit 1
+					;;
+			esac
+
+			if	/bin/bash -c "$pkg_manager_cmd"; then
+				echo -e "\n${GREEN}${BOLD}Success! The install of ${pkg[@]} has completed successfully.${NC}"
+				showMsg "\n${blue}${bold}Success! The install of ${pkg[@]} has completed successfully.${nc}" 10 40
+			else
+				echo -e "\n${RED}${BOLD}Error: Install of ${pkg[@]} is terminated with errors.${NC}"
+				echo -e "Please review the error messages above to diagnose the issue."
+				showError "\n${red}${bold}Install of ${pkg[@]} is terminated with errors.${nc}\n\n \
+				Please review the error messages to diagnose the issue." 10 40
+				exit 1
+			fi
+		else
+			echo -e "${RED}Error: Could not detect distribution. /etc/os-release not found.${NC}"
+			showError "Could not detect the distribution you are running because /etc/os-release not found.\nThe program cannot work properly.\n\n   YOU HAVE TO MANUALLY INSTALL: '${pkg[@]}' BEFORE RUNNING IT AGAIN." 15 60
+			exit 1
+		fi
+	fi
+}
 # Check if script is run as root
 if [[ $EUID -ne 0 ]]; then
    echo -e "${RED}Script must be run as root. Exiting...${NC}"
@@ -415,39 +467,39 @@ fi
 # SIGNAL HANDLING AND CLEANUP FUNCTIONS
 #####################################################################
 function showMenu() {
-# Input: TITLE, BACKTITLE, MENU, HEIGHT, WIDTH, CHOICE_HEIGHT, ARRAY
-# Output: SELECTION
-	CHOICE=""
-	local TITLE="$1"
-	local BACKTITLE="$2"
-	local MENU="$3"
-	local HEIGHT="$4"
-	local WIDTH="$5"
-	local CHOICE_HEIGHT="$6"; shift
-	local OPTIONS=( "$@" )
-	local SELECTION
-	#printf "%s\n" "${OPTIONS[@]}"
-	#echo "${TITLE}"'|'"${BACKTITLE}"'|'"${MENU}"'|'"${HEIGHT}"'|'"${WIDTH}"'|'"${CHOICE_HEIGHT}" 
-	for (( i=${#OPTIONS[@]}-1; i>=0; i-- ));
+# Input: title, backtitle, menu, height, width, choice_height, ARRAY
+# Output: selection
+	choice=""
+	local title="$1"
+	local backtitle="$2"
+	local menu="$3"
+	local height="$4"
+	local width="$5"
+	local choice_height="$6"; shift
+	local options=( "$@" )
+	local selection
+	local arr_choice
+	#echo "${title}"'|'"${backtitle}"'|'"${menu}"'|'"${height}"'|'"${width}"'|'"${choice_height}" 
+	for (( i=${#options[@]}-1; i>=0; i-- ));
 	do
-	# echo "${ARR_CHOICE[i]}"
-	if [[ ${OPTIONS[i]} = @("${TITLE}"|"${BACKTITLE}"|"${MENU}"|"${HEIGHT}"|"${WIDTH}"|"${CHOICE_HEIGHT}") ]]; then
-		unset 'OPTIONS[i]' # Cleanup spurious elements in array
+	if [[ ${options[i]} = @("${title}"|"${backtitle}"|"${menu}"|"${height}"|"${width}"|"${choice_height}") ]]; then
+		unset 'options[i]' # Cleanup spurious elements in array
 	fi
 	done
 	# display the menu dialog box
-	SELECTION=$(dialog --clear \
+	selection=$(dialog --clear \
 	--colors \
-	--backtitle "$BACKTITLE" \
-	--title "$TITLE" \
-	--menu "$MENU" \
-	$HEIGHT $WIDTH $CHOICE_HEIGHT \
-	"${OPTIONS[@]}" \
+	--backtitle "$backtitle" \
+	--title "$title" \
+	--menu "$menu" \
+	$height $width $choice_height \
+	"${options[@]}" \
 	2>&1 >/dev/tty)
-	if [[ $? -ne 0 || ! "$SELECTION" ]]; then
+	if [[ $? -ne 0 || ! "$selection" ]]; then
 		return 1
 	fi
-	CHOICE=`echo ${SELECTION}| tr -d '"'`
+	choice=`echo ${selection}| tr -d '"'`
+	echo $choice
 	return 0
 }
 
@@ -558,7 +610,7 @@ function select_bkup_d-f() {
 		CURR_DIR=${CURR_DIR%*/}
 		#echo "curr_dir= "${CURR_DIR}
 		#read -p "Press enter to continue"
-		printf '%s\n' "${LIST_DIR[@]}"
+		#printf '%s\n' "${LIST_DIR[@]}"
 		LIST_DIR=(`sh -c "find '${CURR_DIR}' -maxdepth 1 $tipo"`)
 		LIST_DIR=("${LIST_DIR[@]:1}")  # Remove the directory in which list is done
 		for dir in "${LIST_DIR[@]}"; do    # list directories in the form "/tmp/dirname/"
@@ -588,7 +640,7 @@ function select_bkup_d-f() {
 
 	# display the dialog box to choose devices
 		DRILL="Please select a directory/file from:\n${bold}${CURR_DIR}${nc}.\n< Finish > confirm, < OK > drill down, < Cancel > exit."
-		showMenu  "DIRECTORY SELECTION" "FSarchiver-Backup" "$DRILL" "18" "70" "5" "${ARR_PARAMETER[@]}"
+		CHOICE=$(showMenu  "DIRECTORY SELECTION" "FSarchiver-Backup" "$DRILL" "18" "70" "5" "${ARR_PARAMETER[@]}")
 		if [[ $? -ne 0 ]]; then
 			return 1
 		fi
@@ -628,14 +680,14 @@ function best_dir() {
 		best_dir="${1}"
 	else
 		if ! check_uuid_mounted "${1}"; then
-			showYN "Device ${DEVICE} appears not mounted.\nYou might want to mount it outside this program or either\n\ndo you want I mount it for you on /tmp/fsa?" 10 40
+			showYN "Device ${DEVICE} appears not mounted.\nYou might want to mount it outside this program or either\n\ndo you want I mount it for you on /tmp/sce?" 10 40
 			if [[ $? -eq 1 ]]; then
 				return 1
 			fi
-			if [ ! -d /tmp/fsa ]; then
-				mkdir /tmp/fsa
+			if [ ! -d /tmp/sce ]; then
+				mkdir /tmp/sce
 			fi
-			mount $(readlink -f /dev/disk/by-uuid/"$1") /tmp/fsa
+			mount $(readlink -f /dev/disk/by-uuid/"$1") /tmp/sce
 			sleep 3
 		fi
 		best_dir=$(echo `findmnt -n -o TARGET $(blkid -U "${1}")`)
@@ -645,7 +697,7 @@ function best_dir() {
 	for dir in ${best_dir}
 	do
     dir=$(echo $dir | sed 's/\/$//')
-    if [[ "${dir}" = @("/media"*|"/mnt"*|"/run/media"*|"/tmp/fsa"*) ]]; then
+    if [[ "${dir}" = @("/media"*|"/mnt"*|"/run/media"*|"/tmp/fsa"*|"/tmp/sce"*) ]]; then
 		BEST_DIR=$dir
 		echo $BEST_DIR
 		return 0;
@@ -668,68 +720,66 @@ function select_device() {
 	#Function to choose a device
 	#
 	IFS=$'\n'
-	ARR_TOT=()
-	DEVICE_ID=()
-	LIST_DEVICE=()
-	ARR_PARAMETER=()
-	NO_UNMOUNT="$5"
+	local arr_tot=() device_id=() list_device=() arr_parameter=() devid device uuid gpterr
+	local no_umount="$5"
 	# list all USB devices, excluding root & hubs
-	BLK=(`lsblk -l -o NAME,SIZE,FSTYPE,UUID,TYPE | grep -e $2`)
+	BLK=(`lsblk -l -o NAME,SIZE,FSTYPE,UUID,PARTTYPE,TYPE | grep -e $2`)
 	if [ $3 ]; then BLK=(`printf '%s\n' "${BLK[@]}" | grep $3 $4`); fi
-	ARR_TOT=(`printf '%s\n' "${BLK[@]}" | awk -F' '  '{print $1" ",$2" ",$3" ",$4" "}'`) 
-	DEVICE_ID=(`printf '%s\n' "${BLK[@]}" | awk -F' '  '{print $1}'`)
-	LIST_DEVICE=(`printf '%s\n' "${BLK[@]}" | awk -F' '  '{print $3,$2,$4}'`)
+	arr_tot=(`printf '%s\n' "${BLK[@]}" | awk -F' '  '{print $1" ",$2" ",$3" ",$4" "}'`) 
+	device_id=(`printf '%s\n' "${BLK[@]}" | awk -F' '  '{print $1}'`)
+	list_device=(`printf '%s\n' "${BLK[@]}" | awk -F' '  '{print $3,$2,$4}'`)
 	# loop through the devices array to generate menu parameter
-	for (( i=${#DEVICE_ID[@]}-1; i>=0; i-- ));
+	for (( i=${#device_id[@]}-1; i>=0; i-- ));
 	do
 		# if needed, remove [xxx] from device name as it gives trouble with grep
-		DEVID=`echo "${DEVICE_ID[i]}"`
-		DEVICE=`echo "${LIST_DEVICE[i]}" | sed 's/\[.*\]//g'`
+		devid=`echo "${device_id[i]}"`
+		device=`echo "${list_device[i]}" | sed 's/\[.*\]//g'`
 		# add it to the parameters list
-		# ARR_PARAMETER=( ${DEVID} ${DEVICE} "OFF" ${ARR_PARAMETER[@]} )
-		ARR_PARAMETER+=( ${DEVID} ${DEVICE} )
+		arr_parameter+=( ${devid} ${device} )
 	done
-	printf '%s\n' "${ARR_PARAMETER[@]}" 
-	showMenu  "DEVICE CHOICE" "FSarchiver-Backup" "$1" "18" "60" "5" "${ARR_PARAMETER[@]}"
-	if [[ ! "${DEVICE}" || $? -ne 0 ]]; then
+	showMenu  "device choice" "FSarchiver-Backup" "$1" "18" "60" "5" "${arr_parameter[@]}"
+	if [[ ! "${device}" || $? -ne 0 ]]; then
 		return 1
 	fi
-	DEVICE=`echo ${CHOICE}| tr -d '"'`
-	for i in "${!ARR_TOT[@]}"; do
-		if [[ "${DEVICE_ID[$i]}" = "${CHOICE}" ]]; then
-			echo "trovato:" "${ARR_TOT[$i]}";
-			UUID=`echo "${ARR_TOT[$i]}" | awk -F' '  '{print $4}' | tr -d '"'`
-			if check_uuid_mounted ${UUID} && [ ! "${NO_UNMOUNT}" ]; then
-				if [ `df -P / | sed -n '$s/[[:blank:]].*//p'` = "/dev/${DEVICE}" ]; then
-					showInfo "The partition ${red}${bold}/dev/${DEVICE}${nc} you have selected is the one you are running on, then for security reasons it ${red}${bold}will not be unmounted${nc}." 8 50 5
+	device=`echo ${choice}| tr -d '"'`
+	for i in "${!arr_tot[@]}"; do
+		if [[ "${device_id[$i]}" = "${choice}" ]]; then
+			uuid=`echo "${arr_tot[$i]}" | awk -F' '  '{print $4}' | tr -d '"'`
+			if check_uuid_mounted ${uuid} && [ ! "${no_umount}" ]; then
+				if [ `df -P / | sed -n '$s/[[:blank:]].*//p'` = "/dev/${device}" ]; then
+					showInfo "The partition ${red}${bold}/dev/${device}${nc} you have selected is the one you are running on, then for security reasons it ${red}${bold}will not be unmounted${nc}." 8 50 5
 				else
-					umount /dev/${DEVICE}
+					umount /dev/${device}
 				fi
 			fi
 		fi
 	done
 
-	#UUID=`echo ${CHOICE}| awk -F' '  '{print $2}' | tr -d '"'`
-	sgdisk -v /dev/$(echo $DEVICE | sed 's/[0-9]//g') # Check GPT partition table and repair
-	if [ $? != 0 ]; then
-		showYN "The "$(echo $DEVICE | sed 's/[0-9]//g')" disk has problems and FSarchiver may not work properly\n \
+	#uuid=`echo ${choice}| awk -F' '  '{print $2}' | tr -d '"'`
+	gpterr="$(sgdisk -v /dev/$(echo $device | sed 's/[0-9]//g'))" # Check GPT partition table and repair
+	if [ $? -ne 0 ]; then
+		showYN "The "$(echo $device | sed 's/[0-9]//g')" disk has problems and FSarchiver may not work properly\n \
 		before use you should repair with commands:\n \
-		sudo sgdisk -r /dev/"$(echo $DEVICE | sed 's/[0-9]//g')"\n \
-		or other expert commands\n      Would you continue anyway?" 15 70
+		sgdisk -r /dev/"$(echo $device | sed 's/[0-9]//g')"\n \
+		or other expert commands\n      Would you continue anyway?" 15 70 1
 		if [[ $? -eq 1 ]]; then
-			#cleanup_on_interrupt
 			return 1;
 		fi
 	fi
-	local fstype=$(findmnt -n -o FSTYPE "/dev/$DEVICE" 2>/dev/null)
-	if [[ "${fstype}" = @("ext4"|"ext3"|"ext2") ]]; then # If EXTn verify partition consistency
-		e2fsck -vfy "/dev/${DEVICE}"
+	if [ ! "${no_umount}" ]; then	# If is mounted and should not be checked
+		local fstype=$(findmnt -n -o FSTYPE "/dev/$device" 2>/dev/null)
+		if [[ "${fstype}" = @("ext4"|"ext3"|"ext2") ]]; then # If EXTn verify partition consistency
+			local res="$(e2fsck -vfy "/dev/${device}")"
+			if [ $res ]; then
+				showError "$res\n\n    program will exit." 10 40
+				return 8;
+			fi
+		fi
 	fi
-
-	echo "device: "$DEVICE
-	echo "UUID: "$UUID
-	IFS="\ " read -a ARR_CHOICE <<< "$CHOICE"
-	#printf '%s\n' "${ARR_CHOICE[@]}" 
+	DEVICE=$device
+	#IFS="\ " read -a arr_choice <<< "$choice"
+	#echo "device: "$device
+	#echo "UUID: "$uuid
 	return 0
 }
 
@@ -738,21 +788,278 @@ function select_device() {
 # Input:  The UUID of the drive, such as that reported by blkid
 # Output: Returns value 0 if mounted, 1 if not mounted
 function check_uuid_mounted() {
-	local input_path=$(readlink -f /dev/disk/by-uuid/"$1")
-	local input_maj_min=$(stat -c '%T %t' "$input_path")
+	local mount
+	mount=$(lsblk -r -o UUID,MOUNTPOINT | awk -v u="$1" '$1 == u {print $2}')
+	if [[ -n $mount ]]
+	then
+		return 0
+	fi
+	return 1
+}
 
-	cat /proc/mounts | cut -f-1 -d' ' | while read block_device; do
-		if [ -b "$block_device" ]; then
-			local block_device_real=$(readlink -f "$block_device")
-			local blkdev_maj_min=$(stat -c '%T %t' "$block_device_real")
-			if [ "$input_maj_min" == "$blkdev_maj_min" ]; then
-				return 255
-			fi
+function check_device_mounted() {
+	local mount
+	mount=$(lsblk -r -o UUID,MOUNTPOINT | awk -v u="$1" '$1 == u {print $2}')
+	if [[ -n $mount ]]
+	then
+		return 0
+	fi
+	return 1
+}
+
+function grub_repair() {
+
+	# --- 1. Initial Checks ---
+	echo -e "${BLUE}${BOLD}--- GRUB Advanced Repair Tool ---${NC}"
+
+	# Check for necessary dependencies
+	for cmd in lsblk mount umount chroot grub-install; do
+		if ! command -v "$cmd" &>/dev/null; then
+			showError "Required command '${bold}$cmd${nc}${red}' not found. Please install it.${nc}" 10 50
+			echo -e "${RED}Error: Required command '${BOLD}$cmd${NC}${RED}' not found. Please install it.${NC}"
+			return 1
 		fi
 	done
-	if [ $? -eq 255 ]; then
-		return 0
+	echo -e "${GREEN}All necessary dependencies are present.${NC}"
+
+	# --- 2. System Detection ---
+	echo -e "\n${CYAN}>>> Detecting system configuration...${NC}"
+
+	# Detect architecture
+	local arch
+	arch=$(uname -m)
+	local grub_target_arch=""
+	case "$arch" in
+		"x86_64")   grub_target_arch="x86_64" ;;
+		"i386"|"i686") grub_target_arch="i386" ;;
+		"aarch64")  grub_target_arch="arm64" ;;
+		"armv7l"|"armv6l") grub_target_arch="arm" ;;
+		*)
+			echo -e "${RED}Error: Unsupported architecture ('${BOLD}$arch${NC}${RED}').${NC}"
+			return 1
+			;;
+	esac
+	echo -e "  ${GREEN}Architecture detected:${NC} $arch"
+
+	# Detect boot mode (UEFI or BIOS)
+	local boot_mode=""
+	if [ -d /sys/firmware/efi/efivars ]; then
+		boot_mode="UEFI"
 	else
+		boot_mode="BIOS"
+	fi
+	echo -e "  ${GREEN}Boot mode detected:${NC} $boot_mode"
+
+	# --- 3. Partition Selection ---
+	local root_part=""
+	local efi_part=""
+	echo -e "\n${YELLOW}Searching for partitions automatically...${NC}"
+	# Detect EFI partition (ESP)
+	if [[ "$boot_mode" == "UEFI" ]]; then
+		# Searches for partitions with the 'EFI System Partition' PARTTYPE GUID
+		local esp_candidates
+		esp_candidates=($(lsblk -lpno NAME,PARTTYPE | awk '$2=="c12a7328-f81f-11d2-ba4b-00a0c93ec93b" {print $1}'))
+		if [ ${#esp_candidates[@]} -eq 0 ]; then
+			echo -e "${RED}Error: No EFI System Partition (ESP) found. Try manual mode.${NC}"
+			return 1
+		elif [ ${#esp_candidates[@]} -eq 1 ]; then
+			efi_part=${esp_candidates[0]}
+			echo -e "  ${GREEN}EFI partition found:${NC} $efi_part"
+		else
+			echo -e "${YELLOW}Multiple EFI partitions found. Please choose one:${NC}"
+			printf '%s\n' "${esp_candidates[@]}"
+			local opt=()
+			for ((i=0; i<=${#esp_candidates[@]}; i++)); do
+				opt+=( "${esp_candidates[i]}" " " )
+			done
+			efi_part="$(showMenu "Grub repair" "EFI selection" "Multiple EFI partitions found. Please choose one:" "15" "40" "10" "${opt[@]}")"
+			if [[ $? -ne 0 ]]; then
+				return 1
+			fi
+		fi
+	fi
+	# List Linux partitions for the user to choose the root
+	echo -e "${YELLOW}Please select your root (/) partition from the list:${NC}"
+	# Show partitions with common Linux filesystems
+	local root_candidates
+	root_candidates=($(lsblk -lpno NAME,FSTYPE | awk '$2 ~ /ext4|btrfs|xfs|f2fs/ {print $1}'))
+	if [ ${#root_candidates[@]} -eq 0 ]; then
+		echo -e "${RED}Error: No partitions with common Linux filesystems found. Try manual mode.${NC}"
+		showError "No partitions with common Linux filesystems found. Try manual mode." 8 40
+		return 1
+	fi
+	local opt=()
+	for ((i=0; i<=${#root_candidates[@]}; i++)); do
+		opt+=( "${root_candidates[i]}" " " )
+	done
+	root_part="$(showMenu "Grub repair" "System selection" "Multiple SYS partitions found. Please choose one:" "15" "40" "10" "${opt[@]}")"
+	if [[ $? -ne 0 ]]; then
+		return 1
+	fi
+
+	echo $root_part
+	echo $boot_mode
+	echo $efi_part
+
+	# Validate that selected partitions exist as block devices
+	if ! [ -b "$root_part" ] || ([[ "$boot_mode" == "UEFI" ]] && ! [ -b "$efi_part" ]); then
+		echo -e "${RED}Error: One or more selected partitions are not valid block devices.${NC}"
+		showError "One or more selected partitions are not valid block devices." 8 40
+		return 1
+	fi
+
+	# --- 4. Confirmation and Mounting ---
+	echo -e "\n${CYAN}>>> Operation Summary ---${NC}"
+	echo -e "  - ${BOLD}Root Partition:${NC} $root_part"
+	if [[ "$boot_mode" == "UEFI" ]]; then
+		echo -e "  - ${BOLD}EFI Partition:${NC}  $efi_part"
+	fi
+	echo -e "  - ${BOLD}Boot Mode:${NC}     $boot_mode"
+	echo -e "\n${YELLOW}WARNING:${NC} This will modify your system's bootloader files."
+	showYN "Boot Mode: ${bold}$boot_mode${nc}\n \
+		Boot partition: ${bold}$efi_part${nc}\n \
+		Root partition: ${bold}$root_part${nc}\n \
+		${red}WARNING:${nc} This will modify your system's bootloader files.\n \
+		     Do you wish to continue?" 15 70 1
+	if [ $? -ne 0 ]; then
+		echo -e "${RED}Operation cancelled by user.${NC}"
+		return 1
+	fi
+
+	echo -e "\n${CYAN}>>> Mounting the file system...${NC}"
+	echo "  Mounting $root_part on /mnt..."
+	mount "$root_part" /mnt
+	if [ $? -ne 0 ]; then
+		echo -e "${RED}Error: Failed to mount the root partition.${NC}"
+		showError "Failed to mount the root partition" 8 40
+		return 1;
+	else
+		echo -e "  ${GREEN}Root partition mounted successfully.${NC}"
+	fi
+
+	if [[ "$boot_mode" == "UEFI" ]]; then
+		# Ensure the mount point for EFI exists
+		echo "  Creating mountpoint /mnt/boot/efi if it doesn't exist..."
+		mkdir -p /mnt/boot/efi
+		echo "  Mounting $efi_part on /mnt/boot/efi..."
+		mount "$efi_part" /mnt/boot/efi
+		if [ $? -ne 0 ]; then
+			echo -e "${RED}Error: Failed to mount the EFI partition.${NC}"
+			showError "Failed to mount the EFI partition." 8 40
+			return 1;
+		else
+			echo -e "  ${GREEN}EFI partition mounted successfully.${NC}"
+		fi
+	fi
+	# Modify /etc/fstab accordingly with current EFI & SYS UUID'
+	root_uuid=$(lsblk -no UUID "$root_part"  2>/dev/null)
+	efi_uuid=$(lsblk -no UUID "$efi_part"  2>/dev/null)
+	# Update fstab with possibily newer UUID
+	cp /mnt/etc/fstab{,.bk}
+	sed -ie 's/UUID=[A-Fa-f0-9-]\+\([ |\t]\+\/boot.*\)/UUID='${efi_uuid}'\1/g' /mnt/etc/fstab
+	sed -ie 's/UUID=[A-Fa-f0-9\-]\+\([ |\t]\+\/[ |\t]\+.*\)/UUID='${root_uuid}'\1/g' /mnt/etc/fstab
+	# --- 5. Preparing the Chroot Environment ---
+	echo -e "\n${CYAN}>>> Preparing the chroot environment...${NC}"
+	# Mount virtual filesystems necessary for chroot to function correctly
+	echo "  Binding /dev, /proc, and /sys..."
+	for fs in dev proc sys; do
+		mount --make-rslave --bind /$fs /mnt/$fs
+	done
+	echo "  Copying DNS info to chroot for internet connectivity..."
+	cp /etc/resolv.conf /mnt/etc/resolv.conf
+	echo -e "  ${GREEN}Chroot environment is ready.${NC}"
+
+	# Detect distribution from within the chroot
+	local distro=""
+	if [ -f /mnt/etc/os-release ]; then
+		distro=$(awk -F= '$1=="ID" { print $2 }' /mnt/etc/os-release | tr -d '"')
+		echo -e "  ${GREEN}Distribution detected in ${root_part}:${NC} ${distro^}"
+	else
+		echo -e "${RED}Error: Could not detect distribution. /etc/os-release not found.${NC}"
+		showError "Could not detect distribution. /etc/os-release not found." 8 40
+		return 1
+	fi
+
+	# --- 6. Executing the Repair ---
+	echo -e "\n${CYAN}>>> Executing GRUB Repair...${NC}"
+
+	local grub_install_cmd=""
+	local grub_config_cmd=""
+	local pkg_manager_cmd=""
+	local grub_efi_dir="/boot/efi" # Standard in most distros
+
+	# Distribution-specific settings
+	case "$distro" in
+		arch|endeavouros|manjaro)
+			grub_install_cmd="grub-install"
+			grub_config_cmd="grub-mkconfig -o /boot/grub/grub.cfg"
+			pkg_manager_cmd="pacman -S --noconfirm grub efibootmgr" # Reinstall just in case
+			;;
+		debian|ubuntu|linuxmint)
+			grub_install_cmd="grub-install"
+			grub_config_cmd="update-grub"
+			pkg_manager_cmd="apt-get update && apt-get install --reinstall -y grub-common grub-efi-${grub_target_arch}-signed shim-signed"
+			;;
+		fedora|centos|rhel)
+			grub_install_cmd="grub2-install"
+			grub_config_cmd="grub2-mkconfig -o /boot/grub2/grub.cfg"
+			pkg_manager_cmd="dnf reinstall -y grub2-efi-${grub_target_arch} shim-${grub_target_arch}"
+			;;
+		opensuse*|sles)
+			grub_install_cmd="grub2-install"
+			grub_config_cmd="grub2-mkconfig -o /boot/grub2/grub.cfg"
+			pkg_manager_cmd="zypper install --force grub2-x86_64-efi shim"
+			;;
+		*)
+			echo -e "${RED}Error: Distribution '${distro}' is not supported by this script.${NC}"
+			showError "Distribution '${distro}' is not supported by this script." 8 40
+			return 1
+			;;
+	esac
+
+	local full_command=""
+	if [[ "$boot_mode" == "UEFI" ]]; then
+		local secure_boot_fix=""
+		showYN "Attempt to reinstall packages for Secure Boot? (Recommended)" 8 40 1
+		#read -rp "  Attempt to reinstall packages for Secure Boot? (Recommended) [y/N]: " fix_sb
+		if [ $? = 0 ]; then
+			secure_boot_fix="$pkg_manager_cmd && "
+		fi
+
+		# The bootloader-id is the name that will appear in the BIOS/UEFI boot menu
+		full_command="${secure_boot_fix}${grub_install_cmd} --target=${grub_target_arch}-efi --efi-directory=${grub_efi_dir} --bootloader-id=GRUB --no-nvram --recheck && ${grub_config_cmd}"
+
+	else # BIOS Mode
+		local target_disk=""
+		echo -e "${YELLOW}Please choose the disk to install GRUB onto (usually the main disk, not a partition):${NC}"
+		local disk_candidates
+		disk_candidates=($(lsblk -dno NAME | awk '{print "/dev/"$1}'))
+		select opt in "${disk_candidates[@]}"; do
+			if [[ -n "$opt" ]]; then
+				target_disk=$opt
+				break
+			else
+				echo "Invalid selection."
+			fi
+		done
+		full_command="${grub_install_cmd} --target=${grub_target_arch}-pc --recheck ${target_disk} && ${grub_config_cmd}"
+	fi
+
+	# Execute the final command inside the chroot
+	echo -e "\n${YELLOW}The following commands will be executed inside the chroot:${NC}"
+	echo -e "${BOLD}$full_command${NC}"
+	echo -e "${YELLOW}Starting repair process...${NC}"
+
+	if chroot /mnt /bin/bash -c "$full_command"; then
+		echo -e "\n${GREEN}${BOLD}Success! The GRUB repair process appears to have completed successfully.${NC}"
+		echo -e "You may now reboot your system."
+		showMsg "\n${green}${bold}Success! The GRUB repair process appears to have completed successfully.${nc}\n \
+	    You may now reboot your system." 10 40
+	else
+		echo -e "\n${RED}${BOLD}Error: The GRUB repair failed inside the chroot environment.${NC}"
+		echo -e "Please review the error messages above to diagnose the issue."
+		showError "\n${red}${bold}The GRUB repair failed inside the chroot environment.${nc}\n\n \
+	    Please review the error messages above to diagnose the issue." 10 40
 		return 1
 	fi
 }
@@ -793,7 +1100,7 @@ function cleanup_on_interrupt() {
 	# Clean up fsarchiver mount points on interruption
 	echo -e "${YELLOW}Cleaning up fsarchiver mount points after interruption...${NC}"
 	cleanup_fsarchiver_mounts true
-
+	cleanup_sce_mount true
 	# Log entry for interruption
 	if [[ -n "$BACKUP_LOG" ]]; then
 		echo "Backup interrupted: $(date +%d.%B.%Y,%T)" >> "$BACKUP_LOG"
@@ -839,35 +1146,80 @@ function showError() {
 	# Input "Error_msg" "Height" "Width"
 	CUR_DATE=`date '+%Y-%m-%d %H:%M:%S'`
 	echo "$CUR_DATE - ERROR :: $1" >> $BACKUP_LOG
-	dialog --colors --title "ERROR" --backtitle "${bold}ERROR MANAGER${nc}" --msgbox "\n${red}${rev}ERROR: ${nc}\n   ${red}${bold}$1${nc}\n\n${black}${bold}       Program will exit${nc}" "$2" "$3"
+	dialog --colors --title "ERROR" --backtitle "${bold}ERROR MANAGER${nc}" --msgbox "\n${red}${rev}ERROR: ${nc}\n   ${red}${bold}$1${nc}\n\n${black}${bold}       Program will exit${nc}" "$2" "$3" 2>&1 >/dev/tty
 	#cleanup_on_interrupt
 	return 1
 }
 
 function showInfo() {
 	# Input "Infor_msg" "Height" "Width" "Prompt_duration"
-	dialog --colors --infobox "$1" "$2" "$3"
-	sleep "$4"
+	dialog --colors --infobox "$1" "$2" "$3" 2>&1 >/dev/tty
+	if [ $4 ]; then sleep "$4"; fi
 }
 
 function showMsg() {
 	# Input "Msg" "Height" "Width"
-	dialog --colors --msgbox "$1" "$2" "$3" 2>&1 >/dev/tty
+	dialog --colors --clear --msgbox "$1" "$2" "$3" 2>&1 >/dev/tty
 }
 
 function showYN() {
-	# Input "Question" "Height" "Width"
+	# Input "Question" "Height" "Width" "1 if default no"
 	answer=$(dialog --colors --clear --stdout --title "What to do?" \
+	`if [[ $4 = 1 ]]; then echo --defaultno; fi` \
 	--backtitle "FSarchiver-Backup" \
-	--yesno "$1" "$2" "$3")
+	--yesno "$1" "$2" "$3") 2>&1 >/dev/tty
 	return $answer
 }
 
 function showInput() {
 	# Input:   "Title" "Prompt_message" "Width" "Default_value"
 	# Output:  The value inserted
-	# example: showInput "Title" "Message prompt" "Width" "Height" "Default value"
-	dialog --clear --colors --title "$1"  --backtitle "FSarchiver-Backup" --inputbox "$2" "$3" "$4" "$5" 2>&1 >/dev/tty
+	# example: showInput "Title" "Message prompt" "Width" "Height" "Default value" "Default cancel button"
+	dialog --clear --colors --title "$1" \
+	--backtitle "FSarchiver-Backup" \
+	--inputbox "$2" "$3" "$4" "$5" 2>&1 >/dev/tty
+}
+
+function EFIin() {
+	local efipart
+	while true;
+		do
+		efipart="$(select_device "\n${bold}Please select the ${red}EFI${nc}${bold} boot Partition${nc}" "part" "-i" "c12a7328-f81f-11d2-ba4b-00a0c93ec93b")"
+		case $? in
+		0 ) 
+			echo $efipart
+			return 0
+		;;
+		1)
+			showYN "Nothing was selected\nWould you retry?" 10 40
+			if [[ $? -ne 0 ]]; then return 1; fi
+		;;
+		*)
+			return 1
+		;;
+		esac
+	done
+}
+
+function SYSin() {
+	local syspart
+	while true;
+		do
+		syspart=$(select_device "\n${bold}Please select the ${red}SYSTEM${nc}${bold} Partition to be archived${nc}" "part" "-v" "fat")
+		case $? in
+		0 ) 
+			echo $syspart
+			return 0
+		;;
+		1)
+			showYN "Nothing was selected\nWould you retry?" 10 40
+			if [[ $? -ne 0 ]]; then return 1; fi
+		;;
+		*)
+			return 1
+		;;
+		esac
+	done
 }
 
 #####################################################################
@@ -877,7 +1229,10 @@ function showInput() {
 # Function to find all fsarchiver mount points
 function find_fsarchiver_mounts() {
 	# Find all mount points under /tmp/fsa/ (with -r for raw output without tree formatting)
-	findmnt -n -r -o TARGET | grep "^/tmp/" | grep "^/fsa/" 2>/dev/null | sort -r || true
+	local mnt=($(findmnt -n -r -o TARGET | grep "^/tmp/fsa/" 2>/dev/null | sort -r || true))
+	#local mnt=($(findmnt -n -r -o TARGET | grep "^/tmp/" 2>/dev/null | sort -r || true))
+	mnt+=($(findmnt -n -r -o TARGET | grep "^/mnt/" 2>/dev/null | sort -r || true))
+	printf '%s\n' "${mnt[@]}"
 }
 
 # Function to cleanly unmount fsarchiver mount points
@@ -949,6 +1304,15 @@ function cleanup_fsarchiver_mounts() {
 					echo -e "${GREEN}✓ /tmp/fsa directory cleaned up${NC}"
 				fi
 			fi
+			# Try to remove empty /tmp/sce directories
+			if [[ -d "/tmp/sce" ]]; then
+				echo -e "${BLUE}Cleaning up empty /tmp/sce directories...${NC}"
+				find /tmp/sce -type d -empty -delete 2>/dev/null || true
+				if [[ ! -d "/tmp/sce" || -z "$(ls -A /tmp/sce 2>/dev/null)" ]]; then
+					rmdir /tmp/sce 2>/dev/null || true
+					echo -e "${GREEN}✓ /tmp/sce directory cleaned up${NC}"
+				fi
+			fi
 			
 			return 0
 		else
@@ -965,6 +1329,64 @@ function cleanup_fsarchiver_mounts() {
 		echo -e "${YELLOW}For manual cleanup, run:${NC}"
 		echo -e "${YELLOW}sudo umount /tmp/fsa/*/media/* 2>/dev/null || true${NC}"
 		echo -e "${YELLOW}sudo umount /tmp/fsa/* 2>/dev/null || true${NC}"
+		echo -e "${YELLOW}sudo umount /tmp/sce/*/media/* 2>/dev/null || true${NC}"
+		echo -e "${YELLOW}sudo umount /tmp/sce/* 2>/dev/null || true${NC}"
+		return 1
+	fi
+}
+
+function cleanup_sce_mount() {
+	local force_cleanup="${1:-false}"
+
+	echo -e "${BLUE}Searching for /tmp/sce mount point...${NC}"
+
+	local mount
+	mount=$(findmnt -n -r -o TARGET | grep "^/tmp/sce" 2>/dev/null | sort -r || true)
+
+	if [[ -z "$mount" ]]; then
+		echo -e "${GREEN}✓ Mount point not found${NC}"
+		return 0
+	fi
+	if [[ "$force_cleanup" == "true" ]]; then
+		echo -e "${BLUE}Automatic cleanup of mount points...${NC}"
+		local cleanup_success=true
+		
+		# Unmount mount points in reverse order (deepest first)
+		echo -e "${YELLOW}Unmounting: $mount${NC}"
+				
+		# Try normal umount
+		if umount "$mount" 2>/dev/null; then
+			echo -e "${GREEN}  ✓ Successfully unmounted${NC}"
+		else
+			# On failure: try lazy umount
+			echo -e "${YELLOW}  - Normal umount failed, trying lazy umount...${NC}"
+			if umount -l "$mount" 2>/dev/null; then
+				echo -e "${GREEN}  ✓ Lazy umount successful${NC}"
+			else
+				# On further failure: force umount
+				echo -e "${YELLOW}  - Lazy umount failed, trying force umount...${NC}"
+				if umount -f "$mount" 2>/dev/null; then
+					echo -e "${GREEN}  ✓ Force umount successful${NC}"
+				else
+					echo -e "${RED}  ✗ All umount attempts failed for: $mount${NC}"
+					cleanup_success=false
+				fi
+			fi
+			# Try to remove empty /tmp/sce directories
+			if [[ -d "/tmp/sce" ]]; then
+				echo -e "${BLUE}Cleaning up empty /tmp/sce directories...${NC}"
+				find /tmp/sce -type d -empty -delete 2>/dev/null || true
+				if [[ ! -d "/tmp/sce" || -z "$(ls -A /tmp/sce 2>/dev/null)" ]]; then
+					rmdir /tmp/sce 2>/dev/null || true
+					echo -e "${GREEN}✓ /tmp/sce directory cleaned up${NC}"
+				fi
+			fi
+			return 0
+		fi
+	else
+		echo -e "${YELLOW}Automatic cleanup not activated.${NC}"
+		echo -e "${YELLOW}For manual cleanup, run:${NC}"
+		echo -e "${YELLOW}sudo umount /tmp/sce/* 2>/dev/null || true${NC}"
 		return 1
 	fi
 }
@@ -1044,7 +1466,7 @@ function show_available_drives() {
 	echo -e "${BLUE}Use the following command to display all network drives:${NC}"
 	echo "findmnt -t nfs,nfs4,cifs -o TARGET,SOURCE,FSTYPE,OPTIONS"
 	echo ""
-	echo -e "${BLUE}Formatted output of available local drives:${NC}"
+	#echo -e "${BLUE}Formatted output of available local drives:${NC}"
 
 	# Header
 	printf "%-36s | %-12s | %-8s | %-8s | %-12s | %-20s | %s\n" "UUID" "LABEL" "NAME" "SIZE GB" "VENDOR" "MODEL" "MOUNTPOINT"
@@ -1124,19 +1546,19 @@ function find_backup_drive_by_uuid() {
 		local device_path=""
 		local mount_points=""
 		local best_mount_point=""
-	local source_uuid=""
+		local source_uuid=""
 
-	local backup_drive_path="$(echo -e "${BACKUP_DRIVE_PATH}" | tr -d '[:space:]')"
-	local backup_drive_uuid=$(findmnt -n -o UUID "$backup_drive_path" 2>/dev/null)
+		local backup_drive_path="$(echo -e "${backup_drive_path}" | tr -d '[:space:]')"
+		local backup_drive_uuid=$(findmnt -n -o UUID "$backup_drive_path" 2>/dev/null)
 
-	for source_uuid in "${SOURCE_UUID[@]}"; do
-		#echo $source_uuid;
-		if [[ "${source_uuid}" == "${identifier}" ]]; then
-			error="source' (UUID: $source_uuid) is on the same drive as backup target '$backup_drive_path'"
-			echo -e "${RED}Source '$source' (UUID: $source_uuid) is on the same drive as backup target '$backup_drive_path'${NC}"
-			return 1
-		fi
-	done   
+		for source_uuid in "${SOURCE_UUID[@]}"; do
+			#echo $source_uuid;
+			if [[ "${source_uuid}" == "${identifier}" ]]; then
+				error="source' (UUID: $source_uuid) is on the same drive as backup target '$backup_drive_path'"
+				echo -e "${RED}Source '$source' (UUID: $source_uuid) is on the same drive as backup target '$backup_drive_path'${NC}"
+				return 1
+			fi
+		done   
 		# Search for device with specified UUID
 		device_path=$(blkid -U "$identifier" 2>/dev/null)
 		
@@ -1145,10 +1567,20 @@ function find_backup_drive_by_uuid() {
 		fi
 		
 		# Find all mount points for the device
+		
 		mount_points=$(findmnt -n -o TARGET "$device_path" 2>/dev/null | tr ' ' '\n')
 		
 		if [[ -z "$mount_points" ]]; then
-			return 1
+			showYN "Device ${DEVICE} appears not mounted.\nYou might want to mount it outside this program or either\n\ndo you want I mount it for you on /tmp/sce?" 10 40
+			if [[ $? -eq 1 ]]; then
+				return 1
+			fi
+			if [ ! -d /tmp/sce ]; then
+				mkdir /tmp/sce
+			fi
+			mount /dev/${DEVICE} /tmp/sce
+			sleep 3
+			mount_points=$(findmnt -n -o TARGET "$device_path" 2>/dev/null | tr ' ' '\n')
 		fi
 		
 		# Select the best mount point (prefer real mount points over temporary ones)
@@ -1156,7 +1588,6 @@ function find_backup_drive_by_uuid() {
 			# Skip fsarchiver temporary mount points
 			best_mount_point=$(best_dir "$mount_point")
 		done
-		
 		if [[ -n "$best_mount_point" ]]; then
 			echo "$best_mount_point"
 			return 0
@@ -1234,7 +1665,6 @@ function find_best_backup_drive() {
 		# Check all configured backup types on this drive
 		for backup_name in "${!BACKUP_PARAMETERS[@]}"; do
 			IFS=':' read -r backup_base_name source <<< "${BACKUP_PARAMETERS[$backup_name]}"
-			
 			local latest_version
 			latest_version=$(find_latest_backup_version "$drive" "$backup_base_name")
 			
@@ -1365,7 +1795,7 @@ function validate_backup_drive() {
 					return 1
 				fi
 			fi
-			
+			#bbbb
 			echo -e "${GREEN}✓ Backup drive UUID: $backup_drive_uuid${NC}"
 			printf '%s\n' "${BACKUP_PARAMETERS[@]}"
 			# Check if any of the sources is on the same drive
@@ -1447,7 +1877,7 @@ function do_backup() {
 	if [[ "$ZSTD_COMPRESSION_VALUE" > "0" ]]; then
 		COMPRESSION_VALUE="-Z"$ZSTD_COMPRESSION_VALUE
 	fi
-	
+	showInfo "Be patient. Backup has started and may take some time...." 8 40
 	# fsarchiver command depending on encryption configuration
 	if [[ "$USE_ENCRYPTION" == true ]]; then
 			ERROR_MSG=$({ fsarchiver "${exclusions[@]}" -o -v -A -j$(nproc) ${COMPRESSION_VALUE} -c "${FSPASS}" savefs "$backup_file" "$device"; } 2>&1 | tee -a $BACKUP_LOG )
@@ -1456,18 +1886,8 @@ function do_backup() {
 			ERROR_MSG=$({ fsarchiver "${exclusions[@]}" -o -v -A -j$(nproc) ${COMPRESSION_VALUE} savefs "$backup_file" "$device"; } 2>&1 | tee -a $BACKUP_LOG )
 			#fsarchiver "${EXCLUDE_STATEMENTS[@]}" -o -v -d -A -j$(nproc) -Z$ZSTD_COMPRESSION_VALUE savefs "$backup_file" "$device" 2>&1 | tee -a $BACKUP_LOG &
    	fi
-
 	local fsarchiver_exit_code=$?
-	# Store PID of fsarchiver process for signal handler
-	#CURRENT_FSARCHIVER_PID=$!
-	
-	# Wait for fsarchiver process
-	#wait $CURRENT_FSARCHIVER_PID
-	#local fsarchiver_exit_code=$?
-	
-	# Reset fsarchiver PID (finished)
-	CURRENT_FSARCHIVER_PID=""
-	
+
 	# Check if script was interrupted
 	if [[ "$SCRIPT_INTERRUPTED" == true ]]; then
 		echo -e "${YELLOW}Backup was interrupted while processing $device${NC}"
@@ -1659,45 +2079,29 @@ function MainBackup() {
 	# DEFINE THE PARTITIONS TO BE BACKED-UP
 	#####################################################################
 	declare -a SOURCE_UUID=()
+	local devsys devefi
 	if [[ "$efisys" == *"EFI"* ]]; then
-		while true;
-			do
-			select_device "\n${bold}Please select the ${red}EFI${nc}${bold} boot Partition${nc}" "part" "-i" "vfat"
-			if [[ $? -ne 0 || ! "${DEVICE}" ]]; then
-				showYN "Nothing was selected\nWould you retry?" 10 40
-				if [[ $? -ne 0 ]]; then
-					cleanup_on_interrupt
-					return 1;
-				fi
-			else
-				echo "${DEVICE}"
-				echo "${UUID}"
-				SOURCE_UUID=("${UUID}")
-				BACKUP_PARAMETERS["EFI"]="backup-efi:/dev/${DEVICE}"
-				break;
-			fi
-		done
+		devefi=$(EFIin)
+		if [[ $? -ne 0 || ! "${devefi}" ]]; then return 1; fi
+		DEVICE=$devefi
+		UUID=$(lsblk -no UUID "/dev/${devefi}"  2>/dev/null)
+		BACKUP_PARAMETERS["EFI"]="backup-efi:/dev/${devefi}"
+		echo "${DEVICE}"
+		echo "${UUID}"
+		SOURCE_UUID=("${UUID}")
 	fi
 	if [[ "$efisys" == *"SYS"* ]]; then
-		while true;
-			do
-			select_device "\n${bold}Please select the ${red}SYSTEM${nc}${bold} Partition to be archived${nc}" "part" "-v" "fat"
-			if [[ $? -ne 0 || ! "${DEVICE}" ]]; then
-				showYN "Nothing was selected\nWould you retry?" 10 40
-				if [[ $? -ne 0 ]]; then
-					cleanup_on_interrupt
-					return 1;
-				fi
-			else
-				echo "${DEVICE}"
-				echo "${UUID}"
-				SOURCE_UUID+=("${UUID}")
-				BACKUP_PARAMETERS["System"]="backup-system:/dev/${DEVICE}"
-				break;
-			fi
-		done
+		local devsys
+		devsys=$(SYSin)
+		if [[ $? -ne 0 || ! "${devsys}" ]]; then return 1; fi
+		DEVICE=$devsys
+		UUID=$(lsblk -no UUID "/dev/${devsys}"  2>/dev/null)
+		echo "${DEVICE}"
+		echo "${UUID}"
+		SOURCE_UUID+=("${UUID}")
+		BACKUP_PARAMETERS["System"]="backup-system:/dev/${devsys}"
 	fi
-	# printf '%s\n' "${SOURCE_UUID[@]}" 
+	 printf '%s\n' "${SOURCE_UUID[@]}" 
 	# read -p "Press enter to continue"
 	# Process backup parameters and update paths
 	echo -e "${BLUE}Configuring backup parameters...${NC}"
@@ -1745,7 +2149,11 @@ function MainBackup() {
 	#####################################################################
 	while true;
 	do
-		select_device "\n${bold}Please select the ${red}Drive ${nc}${bold} where to ${red}store Backup(s)${nc}" "part" "-v" "fat\|${DEVICE}"  "no_unmount"
+		DEVICE=$(select_device "\n${bold}Please select the ${red}Drive ${nc}${bold} where to ${red}store Backup(s)${nc}" "part" "-v" "fat\|${DEVICE}"  "no_unmount")
+		UUID=$(lsblk -no UUID "/dev/${DEVICE}"  2>/dev/null)
+		BACKUP_DRIVE_UUIDS+=("$UUID")
+		printf "%s" "${BACKUP_DRIVE_UUIDS[@]}"
+		#aaaaaaaaaaaaaaa
 		if [[ $? -ne 0 || ! "${DEVICE}" ]]; then
 			showYN "Nothing was selected\nWould you retry?" 10 40
 			if [[ $? -ne 0 ]]; then
@@ -1754,20 +2162,8 @@ function MainBackup() {
 			fi
 		fi
 
-		BACKUP_DRIVE_UUIDS=(
-		${UUID}
-		)
-		if ! check_uuid_mounted ${UUID}; then
-			showYN "Device ${DEVICE} appears not mounted.\nYou might want to mount it outside this program or either\n\ndo you want I mount it for you on /tmp/fsa?" 10 40
-			if [[ $? -eq 1 ]]; then
-				return 1
-			fi
-			if [ ! -d /tmp/fsa ]; then
-				mkdir /tmp/fsa
-			fi
-			mount /dev/${DEVICE} /tmp/fsa
-			sleep 3
-		fi
+		#BACKUP_DRIVE_UUIDS=(${UUID})
+
 		BACKUP_DRIVE_PATH=$(find_best_backup_drive)
 		if [[ $? -ne 0 || -z "$BACKUP_DRIVE_PATH" ]]; then
 			ERROR=1
@@ -1785,6 +2181,9 @@ function MainBackup() {
 				return 1
 			fi
 			BACKUP_DRIVE=$(find_best_backup_drive)
+			if [[ $? -ne 0 || -z "$BACKUP_DRIVE" ]]; then
+				return 1
+			fi
 			BACKUP_DIR_PATH=${CHOICE}
 			#echo `select_bkup_d-f ${UUID}`
 			echo ""
@@ -1799,7 +2198,7 @@ function MainBackup() {
 				showError "${ERROR_MSG}" 18 60
 				if [[ $? -ne 0 ]]; then
 					cleanup_on_interrupt
-					exit 1;
+					return 1;
 				fi
 			else
 				break;
@@ -1829,7 +2228,7 @@ function MainBackup() {
 			ERROR=1
 			ERROR_MSG+="Password file $PASSWORD_FILE not found.\n"
 			log_critical_error "$ERROR_MSG" 0 0
-			exit 1
+			return 1
 		fi
 
 		if [ ! -r "$PASSWORD_FILE" ]; then
@@ -1837,7 +2236,7 @@ function MainBackup() {
 			ERROR=1
 			ERROR_MSG+="Password file $PASSWORD_FILE is not readable.\n"
 			log_critical_error "$ERROR_MSG" 0 0
-			exit 1
+			return 1
 		fi
 
 		FSPASS=$(cat "$PASSWORD_FILE" | tr -d '\n')
@@ -1847,7 +2246,7 @@ function MainBackup() {
 			ERROR=1
 			ERROR_MSG+="Password file $PASSWORD_FILE is empty.\n"
 			log_critical_error "$ERROR_MSG" 0 0
-			exit 1
+			return 1
 		fi
 
 		export FSPASS
@@ -1947,6 +2346,12 @@ function MainBackup() {
 	RUNTIME_MINUTES=$((${TIME_DIFF} / 60))
 	RUNTIME_SECONDS=$((${TIME_DIFF} % 60))
 
+	# Message Content Configuration
+	# Available placeholders: {BACKUP_DATE}, {RUNTIME_MIN}, {RUNTIME_SEC}, {ERROR_DETAILS}
+	MSG_BODY_SUCCESS="Backup completed successfully on: {BACKUP_DATE}\nRuntime: {RUNTIME_MIN} minutes and {RUNTIME_SEC} seconds."
+	MSG_BODY_ERROR="Backup failed!\n\nBackup start: {BACKUP_DATE}\nRuntime: {RUNTIME_MIN} minutes and {RUNTIME_SEC} seconds.\n\nERROR REPORT:\n{ERROR_DETAILS}"
+	MSG_BODY_INTERRUPTED="Backup was interrupted!\n\nBackup start: {BACKUP_DATE}\nInterrupted after: {RUNTIME_MIN} minutes and {RUNTIME_SEC} seconds.\n\nThe backup was terminated by user intervention (CTRL+C) or system signal.\nIncomplete backup files have been removed."
+
 	echo -e "${GREEN}========================================${NC}"
 
 	# Check if script was interrupted
@@ -1992,7 +2397,6 @@ function MainBackup() {
 		msg_body="${msg_body//\{RUNTIME_MIN\}/$RUNTIME_MINUTES}"   
 		msg_body="${msg_body//\{RUNTIME_SEC\}/$RUNTIME_SECONDS}"
 		showMsg "$msg_body" 10 50
-
 	fi
 
 	# Exit script with appropriate exit code
@@ -2016,7 +2420,7 @@ function CheckBackup() {
 	###########################
 	while true;
 		do
-		select_device "\nPlease select the file you wish information about" "part" "-v" "fat" "no_unmount"
+		DEVICE=$(select_device "\nPlease select the file you wish information about" "part" "-v" "fat" "no_unmount")
 		if [[ $? -ne 0 || ! "${DEVICE}" ]]; then
 			showYN "No file selected\nWould you retry?" 10 40
 			if [[ $? -ne 0 ]]; then
@@ -2024,6 +2428,7 @@ function CheckBackup() {
 			fi
 		else
 			echo "${DEVICE}"
+			UUID=$(lsblk -no UUID "/dev/${DEVICE}"  2>/dev/null)
 			echo "${UUID}"
 			SOURCE_UUID+=("${UUID}")
 			BACKUP_PARAMETERS["System"]="backup-system:/dev/${DEVICE}"
@@ -2073,6 +2478,22 @@ function CheckBackup() {
 #####################################################################
 #
 function MainRestore() {
+	# Record estore start time
+	TIME_START=$(date +"%s")
+	RESTORE_START_DATE=$(date +%d.%B.%Y,%T)
+
+	echo -e "${GREEN}========================================${NC}"
+	echo -e "${GREEN}RESTORE PROCESS STARTED${NC}"
+	echo -e "${GREEN}Start: $RESTORE_START_DATE${NC}"
+	echo -e "${GREEN}========================================${NC}"
+
+	# Initialize log file
+	if [[ -e $BACKUP_LOG ]]; then
+		rm -f $BACKUP_LOG
+	fi
+	touch $BACKUP_LOG
+
+	echo "Restore started: $BACKUP_START_DATE" >> $BACKUP_LOG
 	# Added for compatibility with backup function
 	ARCH_DIR=".." # Default directory where backup are stored
 	###########################
@@ -2088,7 +2509,7 @@ function MainRestore() {
 			fi
 		else
 			echo "${DEVICE}"
-			echo "${UUID}"
+			UUID=$(lsblk -no UUID "/dev/${DEVICE}"  2>/dev/null)
 			S_DEVICE="/dev/${DEVICE}"
 			S_UUID=("${UUID}") # Source UUID
 			BACKUP_PARAMETERS["System"]="backup-system:/dev/${DEVICE}"
@@ -2134,7 +2555,7 @@ function MainRestore() {
 	ORG_FORM=$(echo $F_INFO | sed -e "s/.*system format:\s\+\([a-z|A-Z|0-9]\w\+\).*/\1/g")
 	ORG_USIZE=$(echo $F_INFO | sed -e 's/^.*size:.*(\([0-9]\+\).*)/\1/g')
 	ORG_UUID=$(echo $F_INFO | sed -e 's/.*uuid:\s*\([a-zA-Z0-9\-]\+\).*/\1/g')
-	ORG_LABEL=$(echo $F_INFO | sed -e 's/.*label:\s\([<>a-z A-Z]\+\)\(.*Minimum.*\)/\1/g' | tr -d ' ')
+	ORG_LABEL=$(echo $F_INFO | sed -e 's/.*label:\s\([<>a-z A-Z]\+\)\(.*Filesystem.*\)/\1/g' | tr -d ' ')
 	if [ "${ORG_LABEL}" = "<none>" ]; then ORG_LABEL=""; fi
 #
 	echo "Original device: "$ORG_DEV
@@ -2153,6 +2574,7 @@ function MainRestore() {
 			fi
 		else
 			echo "${DEVICE}"
+			UUID=$(lsblk -no UUID "/dev/${DEVICE}"  2>/dev/null)
 			echo "${UUID}"
 			D_DISK="${DEVICE}"
 			D_UUID=("${UUID}") # Destination UUID
@@ -2235,7 +2657,7 @@ Minimum space required: ${bold}$((${REF_SIZE}/1048576)) MB (Backup+10%)${nc}\n\
 			return 1;
 		fi
 	fi
-	showYN "\nCurrent UUID is: ${bold}$ORG_UUID${nc}\nDo you want to change it with a new one?\n\n${bold}If you choose YES don't forghet to modify it in /etc/fstab.${nc}" 10 60
+	showYN "\nCurrent UUID is: ${bold}$ORG_UUID${nc}\nDo you want to change it with a new one?\n\n${bold}If you choose YES don't forghet to modify it in /etc/fstab.${nc}" 10 60 1
 	if [[ $? -eq 0 ]]; then
 		if [[ $ORG_USIZE -le 629145600 || `grep -E "efi|EFI"<<< ${BK_FILE##*/}` ]]; then # if size less or equal 600MB assumed is EFI
 			UUID=$(uuidgen | head -c8)
@@ -2245,7 +2667,7 @@ Minimum space required: ${bold}$((${REF_SIZE}/1048576)) MB (Backup+10%)${nc}\n\
 	else
 		UUID=$ORG_UUID
 	fi
-	showYN "\nCurrent file system format is ${bold}$ORG_FORM${nc}\n\nDo you want to change it with a different one?" 10 60
+	showYN "\nCurrent file system format is ${bold}$ORG_FORM${nc}\n\nDo you want to change it with a different one?" 10 60 1
 	if [[ $? -eq 0 ]]; then
 		arr=('ext2' '' 'ext3' '' 'ext4' '' 'reiserfs' '' 'reiser4' '' 'xfs' '' 'jfs' '' 'btrfs' '')
 		showMenu  "FORMAT SELECTION" "FSarchiver-Backup" "${bold}Current format is: $ORG_FORM${nc}\nChoose the new format you like:" "15" "50" "5" "${arr[@]}"
@@ -2253,7 +2675,7 @@ Minimum space required: ${bold}$((${REF_SIZE}/1048576)) MB (Backup+10%)${nc}\n\
 	else
 		FORM=$ORG_FORM
 	fi
-	LABEL=$(showInput "INPUT LABEL" "Current FS label is: ${bold}${LABEL}${nc}\n\n    Please enter your if you want to change it." "15" "60" "${LABEL}")
+	LABEL=$(showInput "INPUT LABEL" "Current FS label is: ${bold}${ORG_LABEL}${nc}\n\n    Please enter your if you want to change it." 15 60 "${ORG_LABEL}")
 	if [ ! $LABEL ]; then
 		if [[ $ORG_USIZE -le 629145600 || `grep -E "efi|EFI"<<< ${BK_FILE##*/}` ]]; then # if size less or equal 600MB assumed is EFI
 			LABEL="EFI"
@@ -2265,43 +2687,95 @@ Minimum space required: ${bold}$((${REF_SIZE}/1048576)) MB (Backup+10%)${nc}\n\
 	if [[ $? -ne 0 ]]; then
 		return 1
 	fi
+	showInfo "Be patient. Restore has started and may take some time...." 8 40
 	RESULT=$({ fsarchiver restfs ${BK_FILE} id=0,dest=/dev/${DEVICE},label=$LABEL,mkfs=${FORM},uuid=$UUID; } 2>&1 | tee -a $BACKUP_LOG )
 	if [[ $RESULT == *"provide the password"* ]]; then
 		askPass "\nThe file is secured by password.\nPlease provide it." 10 50
 		if [[ $? -ne 0 ]]; then return 1; fi
+		showInfo "Be patient. Restore has started and may take some time...." 8 40
 		MSG=$({ fsarchiver restfs -c "${FSPASS}" ${BK_FILE} id=0,dest=/dev/${DEVICE},label=$LABEL,mkfs=${FORM},uuid=$UUID; } 2>&1 )
 		local fsarchiver_exit_code=$?
 		if [[ $fsarchiver_exit_code -ne 0 ]]; then showMsg "\nWrong password, exit now" 6 30; return 1; fi
 	else
+		showInfo "Be patient. Restore has started and may take some time...." 8 40
 		MSG=$({ fsarchiver restfs ${BK_FILE} id=0,dest=/dev/${DEVICE},label=$LABEL,mkfs=${FORM},uuid=$UUID; } 2>&1 )
 		if [[ $fsarchiver_exit_code -ne 0 ]]; then showMsg "\nSomething went wrong, exit now" 6 30; return 1; fi
 	fi
-		echo "$MSG" 2>&1 | tee -a $BACKUP_LOG
-		showMsg "$MSG" 30 70
-	# Store PID of fsarchiver process for signal handler
-	#CURRENT_FSARCHIVER_PID=$!
-	
-	# Wait for fsarchiver process
-	#wait $CURRENT_FSARCHIVER_PID
-	#local fsarchiver_exit_code=$?
-	#if [ ERROR_MSG ]; then echo 1; else echo 0; fi
-	# Reset fsarchiver PID (finished)
-	#CURRENT_FSARCHIVER_PID=""
-	
+	echo "$MSG" 2>&1 | tee -a $BACKUP_LOG
+	showMsg "$MSG" 30 70
 	# Check if script was interrupted
 	if [[ "$SCRIPT_INTERRUPTED" == true ]]; then
 		echo -e "${YELLOW}Restore was interrupted while processing $device${NC}"
 		return 1
 	fi
-	
-	# Check fsarchiver exit code
-	if [[ $fsarchiver_exit_code -ne 0 ]]; then
-		echo -e "${RED}fsarchiver exited with code: $fsarchiver_exit_code${NC}"
-		ERROR=1
-		ERROR_MSG+="fsarchiver exit code $fsarchiver_exit_code for device $device\n"
-		showError "$ERROR_MSG" 20 80
+	#####################################################################
+	# COMPLETION AND LOG NOTIFICATION
+	#####################################################################
+	# Message Content Configuration
+	# Available placeholders: {RESTORE_DATE}, {RUNTIME_MIN}, {RUNTIME_SEC}, {ERROR_DETAILS}
+	MSG_BODY_SUCCESS="Restore completed successfully on: {RESTORE_DATE}\nRuntime: {RUNTIME_MIN} minutes and {RUNTIME_SEC} seconds."
+	MSG_BODY_ERROR="Restore failed!\n\nRestore start: {RESTORE_DATE}\nRuntime: {RUNTIME_MIN} minutes and {RUNTIME_SEC} seconds.\n\nERROR REPORT:\n{ERROR_DETAILS}"
+	MSG_BODY_INTERRUPTED="Restore was interrupted!\n\nRestore start: {RESTORE_DATE}\nInterrupted after: {RUNTIME_MIN} minutes and {RUNTIME_SEC} seconds.\n\nThe backup was terminated by user intervention (CTRL+C) or system signal.\nIncomplete backup files have been removed."
+
+	# Calculate runtime
+	TIME_DIFF=$(($(date +"%s")-${TIME_START}))
+	RUNTIME_MINUTES=$((${TIME_DIFF} / 60))
+	RUNTIME_SECONDS=$((${TIME_DIFF} % 60))
+
+	echo -e "${GREEN}========================================${NC}"
+
+	# Check if script was interrupted
+	if [[ "$SCRIPT_INTERRUPTED" == true ]]; then
+		echo -e "${RED}RESTORE WAS INTERRUPTED${NC}"
+		echo -e "${RED}Runtime: $RUNTIME_MINUTES minutes and $RUNTIME_SECONDS seconds${NC}"
+		echo -e "${RED}========================================${NC}"
+		
+		# Interruption message
+		msg_body="${MSG_BODY_INTERRUPTED}"
+		msg_body="${msg_body//\{RESTORE_DATE\}/$RESTORE_START_DATE}"
+		msg_body="${msg_body//\{RUNTIME_MIN\}/$RUNTIME_MINUTES}"
+		msg_body="${msg_body//\{RUNTIME_SEC\}/$RUNTIME_SECONDS}"
+		
+		showError "msg_body" 10 50
+
+		echo -e "${YELLOW}Interruption messagge showed${NC}"
+		
+		exit 130  # Standard exit code for SIGINT
+	elif [ "$ERROR" -eq 1 ]; then
+		echo -e "${RED}RESTORE COMPLETED WITH ERRORS${NC}"
+		echo -e "${GREEN}End: $(date +%d.%B.%Y,%T)${NC}"
+		echo -e "${GREEN}Runtime: $RUNTIME_MINUTES minutes and $RUNTIME_SECONDS seconds${NC}"
+		echo -e "${GREEN}========================================${NC}"
+		
+		# Error msg
+		msg_body="${MSG_BODY_ERROR}"
+		msg_body="${msg_body//\{RESTORE_DATE\}/$RESTORE_START_DATE}"
+		msg_body="${msg_body//\{RUNTIME_MIN\}/$RUNTIME_MINUTES}"
+		msg_body="${msg_body//\{RUNTIME_SEC\}/$RUNTIME_SECONDS}"
+		msg_body="${msg_body//\{ERROR_DETAILS\}/$ERROR_MSG}"
+		showError "$msg_body" 10 50
+
 	else
-		showMsg "Restore completed successfully on: ${BACKUP_DATE}\nRuntime: ${RUNTIME_MIN} minutes and ${RUNTIME_SEC} seconds." "15" "60" 
+		echo -e "${GREEN}RESTORE COMPLETED SUCCESSFULLY${NC}"
+		echo -e "${GREEN}End: $(date +%d.%B.%Y,%T)${NC}"
+		echo -e "${GREEN}Runtime: $RUNTIME_MINUTES minutes and $RUNTIME_SECONDS seconds${NC}"
+		echo -e "${GREEN}========================================${NC}"
+
+		# Success msg
+		msg_body="${MSG_BODY_SUCCESS}"
+		msg_body="${msg_body//\{RESTORE_DATE\}/$RESTORE_START_DATE}"
+		msg_body="${msg_body//\{RUNTIME_MIN\}/$RUNTIME_MINUTES}"   
+		msg_body="${msg_body//\{RUNTIME_SEC\}/$RUNTIME_SECONDS}"
+		showMsg "$msg_body" 10 50
+	fi
+
+	# Exit script with appropriate exit code
+	if [[ "$SCRIPT_INTERRUPTED" == true ]]; then
+		exit 130  # Standard exit code for SIGINT
+	elif [ "$ERROR" -eq 1 ]; then
+		return 1
+	else
+		return 0
 	fi
 }
 
@@ -2327,49 +2801,56 @@ fi
 #####################################################################
 while true;
 do
-#unset $(env | cut -d= -f1)
-#TITLE, PROMPT, HEIGHT, WIDTH, DEV_HEIGHT, ARRAY
-MENU=("1." "Backup EFI & System partitions" \
-"2." "Backup EFI partition" \
-"3." "Backup System partition" \
-"4." "Check EFI & System backups" \
-"5." "Restore EFI or System partitions" \
-"6." "Exit")
-showMenu "MAIN MENU" "FSarchiver-Backup" "\nPlease select from Menu" "15" "50" "5" "${MENU[@]}"
-case "$CHOICE" in
-"1.")
-	echo "Backup EFI & System partitions"
-	DO_CHOICE="Backup"
-	MainBackup "EFISYS"
-;;
-"2.")
-	echo "Backup EFI & System partitions"
-	DO_CHOICE="Backup"
-	MainBackup "EFI"
-;;
-"3.")
-	echo "Backup EFI & System partitions"
-	DO_CHOICE="Backup"
-	MainBackup "SYS"
-;;
-"4.")
-	echo "Check EFI & System backups"
-	DO_CHOICE="CheckBackup"
-	CheckBackup
-;;
-"5.")
-	echo "Restore EFI or System partitions"
-	DO_CHOICE="Restore"
-	MainRestore
-;;
-"6.")
-	echo "6"
+	user_configuration
+	unset UUID DEVICE CHOICE
+	#TITLE, PROMPT, HEIGHT, WIDTH, DEV_HEIGHT, ARRAY
+	MENU=("1." "Backup EFI & System partitions" \
+	"2." "Backup EFI partition" \
+	"3." "Backup System partition" \
+	"4." "Check EFI / System backups" \
+	"5." "Restore EFI / System partitions" \
+	"6." "Repair/reinstall GRUB" \
+	"7." "Exit")
+	selection="$(showMenu "MAIN MENU" "FSarchiver-Backup" "\nPlease select from Menu" "15" "50" "5" "${MENU[@]}")"
+	case "$selection" in
+	"1.")
+		echo "Backup EFI & System partitions"
+		DO_CHOICE="Backup"
+		MainBackup "EFISYS"
+	;;
+	"2.")
+		echo "Backup EFI & System partitions"
+		DO_CHOICE="Backup"
+		MainBackup "EFI"
+	;;
+	"3.")
+		echo "Backup EFI & System partitions"
+		DO_CHOICE="Backup"
+		MainBackup "SYS"
+	;;
+	"4.")
+		echo "Check EFI & System backups"
+		DO_CHOICE="CheckBackup"
+		CheckBackup
+	;;
+	"5.")
+		echo "Restore EFI or System partitions"
+		DO_CHOICE="Restore"
+		MainRestore
+	;;
+	"6.")
+		echo "6"
+		DO_CHOICE="GRUBrepair"
+		grub_repair
+	;;
+	"7.")
+		echo "7"
+		cleanup_on_interrupt
+		exit 1
+	;;
+	*)
 	cleanup_on_interrupt
 	exit 1
-;;
-*)
-	cleanup_on_interrupt
-	exit 1
-esac
+	esac
 done
 #####################################################################
