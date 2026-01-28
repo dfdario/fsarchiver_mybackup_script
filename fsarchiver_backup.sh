@@ -1,4 +1,4 @@
-#!/bin/bash -x
+#!/bin/bash
 #
 # THIS SCRIPT IS BASED ON THE TWO AVAILABLE AT:
 # https://github.com/lexo-ch/fsarchiver-encrypted-full-system-backup-script-with-email-monitoring
@@ -1877,7 +1877,7 @@ function do_backup() {
 	if [[ "$ZSTD_COMPRESSION_VALUE" > "0" ]]; then
 		COMPRESSION_VALUE="-Z"$ZSTD_COMPRESSION_VALUE
 	fi
-	showInfo "Be patient. Backup has started and may take some time...." 8 40
+	showInfo "Be patient. Backup has started and may take some time to complete...." 8 40
 	# fsarchiver command depending on encryption configuration
 	if [[ "$USE_ENCRYPTION" == true ]]; then
 			ERROR_MSG=$({ fsarchiver "${exclusions[@]}" -o -v -A -j$(nproc) ${COMPRESSION_VALUE} -c "${FSPASS}" savefs "$backup_file" "$device"; } 2>&1 | tee -a $BACKUP_LOG )
