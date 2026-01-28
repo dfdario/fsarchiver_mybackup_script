@@ -33,12 +33,12 @@ fi
 # For debug only
 #####################################################################
 #exec > >(sudo tee -a ${BACKUP_LOG} )
-DEBUG_FILE="./debuglog.log"
-if [ -f ${DEBUG_FILE} ] ; then
-	cp ${DEBUG_FILE}{,.bak}
-fi
+#DEBUG_FILE="./debuglog.log"
+#if [ -f ${DEBUG_FILE} ] ; then
+#	cp ${DEBUG_FILE}{,.bak}
+#fi
 #exec 2> >(tee -a ${DEBUG_FILE} >&2) # Add to existing
-exec &> >(sudo tee "$DEBUG_FILE")
+#exec &> >(sudo tee "$DEBUG_FILE")
 #####################################################################
 function user_configuration() {
 	#####################################################################
