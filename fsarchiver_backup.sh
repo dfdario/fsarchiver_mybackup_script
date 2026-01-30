@@ -608,9 +608,6 @@ function select_bkup_d-f() {
 		local DIR_ARR=()
 		local LIST_DIR=()
 		CURR_DIR=${CURR_DIR%*/}
-		#echo "curr_dir= "${CURR_DIR}
-		#read -p "Press enter to continue"
-		#printf '%s\n' "${LIST_DIR[@]}"
 		LIST_DIR=(`sh -c "find '${CURR_DIR}' -maxdepth 1 $tipo"`)
 		LIST_DIR=("${LIST_DIR[@]:1}")  # Remove the directory in which list is done
 		for dir in "${LIST_DIR[@]}"; do    # list directories in the form "/tmp/dirname/"
@@ -619,9 +616,6 @@ function select_bkup_d-f() {
 				DIR_ARR+=(`echo "${dir##*/}"`)    # print everything after the final "/"
 			fi
 		done
-		#DIR_ARR=("${DIR_ARR[@]:1}")
-		#printf '%s\n' "${DIR_ARR[@]}"
-		#read -p "Press enter to continue"
 		for (( i=${#DIR_ARR[@]}-1; i>=0; i-- ));
 		do
 			# if needed, remove [xxx] from device name as it gives trouble with grep
@@ -648,23 +642,17 @@ function select_bkup_d-f() {
 		case "$CHOICE" in
 			"< Back >")
 				CURR_DIR="${PREV_DIR%*}"
-				# echo "CURR_DIR bak= "$CURR_DIR
-				#read -p "Press enter to continue"
 			;;
 			"< Finish >")
 				CHOICE=${CURR_DIR}
 				echo ${CURR_DIR}
 				return 0
-				#read -p "Press enter to continue"
 			;;
 			*)
 				PREV_DIR="$CURR_DIR"
 				CURR_DIR="${CURR_DIR%*}/$CHOICE"
-				#CURR_DIR="${CURR_DIR%/}" 
-				#read -p "Press enter to continue"
 			;;
 		esac
-		#read -p "Press enter to continue"
 	done
 	IFS="\ "
 	echo ${CURR_DIR}
@@ -1832,7 +1820,6 @@ function validate_backup_drive() {
 					fi
 				fi	
 			done
-			# read -p "Press enter to continue"
 			echo -e "${GREEN}✓ Local backup drive validation successful${NC}"
 			return 0
 			;;
@@ -2102,7 +2089,6 @@ function MainBackup() {
 		BACKUP_PARAMETERS["System"]="backup-system:/dev/${devsys}"
 	fi
 	 printf '%s\n' "${SOURCE_UUID[@]}" 
-	# read -p "Press enter to continue"
 	# Process backup parameters and update paths
 	echo -e "${BLUE}Configuring backup parameters...${NC}"
 	for name in "${!BACKUP_PARAMETERS[@]}"; do
@@ -2308,7 +2294,6 @@ function MainBackup() {
 		#exit 1;
 		return 1
 	fi
-	# printf '%s\n' "${BACKUP_PARAMETERS[@]}"
 
 	# Execute backup jobs by iterating over the associative array
 
@@ -2318,7 +2303,6 @@ function MainBackup() {
 			echo -e "${YELLOW}Script interruption detected. Stopping further backups.${NC}"
 			break;
 		fi
-		# printf '%s\n' "${BACKUP_PARAMETERS[@]}"
 		IFS=':' read -r BKP_IMAGE_FILE SOURCE_DEVICE BKP_BASE_NAME <<< "${BACKUP_PARAMETERS[$KEY]}"
 		echo -e "${BLUE}Starting backup: $KEY${NC}"
 		echo "img: $BKP_IMAGE_FILE - source: $SOURCE_DEVICE - baseN:  $BKP_BASE_NAME" >> $BACKUP_LOG
@@ -2504,8 +2488,8 @@ function MainRestore() {
 		if [[ $? -ne 0 || ! "${DEVICE}" ]]; then
 			showYN "Nothing selected\nWould you retry?" 10 40
 			if [[ $? -ne 0 ]]; then
-				cleanup_on_interrupt
-				exit 1;
+				#cleanup_on_interrupt
+				return 1;
 			fi
 		else
 			echo "${DEVICE}"
@@ -2687,17 +2671,17 @@ Minimum space required: ${bold}$((${REF_SIZE}/1048576)) MB (Backup+10%)${nc}\n\
 	if [[ $? -ne 0 ]]; then
 		return 1
 	fi
-	showInfo "Be patient. Restore has started and may take some time...." 8 40
+	showInfo "Be patient. Restore has started and may take some time to complete...." 8 40
 	RESULT=$({ fsarchiver restfs ${BK_FILE} id=0,dest=/dev/${DEVICE},label=$LABEL,mkfs=${FORM},uuid=$UUID; } 2>&1 | tee -a $BACKUP_LOG )
 	if [[ $RESULT == *"provide the password"* ]]; then
 		askPass "\nThe file is secured by password.\nPlease provide it." 10 50
 		if [[ $? -ne 0 ]]; then return 1; fi
-		showInfo "Be patient. Restore has started and may take some time...." 8 40
+		showInfo "Be patient. Restore has started and may take some time to complete...." 8 40
 		MSG=$({ fsarchiver restfs -c "${FSPASS}" ${BK_FILE} id=0,dest=/dev/${DEVICE},label=$LABEL,mkfs=${FORM},uuid=$UUID; } 2>&1 )
 		local fsarchiver_exit_code=$?
 		if [[ $fsarchiver_exit_code -ne 0 ]]; then showMsg "\nWrong password, exit now" 6 30; return 1; fi
 	else
-		showInfo "Be patient. Restore has started and may take some time...." 8 40
+		showInfo "Be patient. Restore has started and may take some time to complete...." 8 40
 		MSG=$({ fsarchiver restfs ${BK_FILE} id=0,dest=/dev/${DEVICE},label=$LABEL,mkfs=${FORM},uuid=$UUID; } 2>&1 )
 		if [[ $fsarchiver_exit_code -ne 0 ]]; then showMsg "\nSomething went wrong, exit now" 6 30; return 1; fi
 	fi
