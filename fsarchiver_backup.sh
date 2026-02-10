@@ -2795,7 +2795,7 @@ do
 	"5." "Restore EFI / System partitions" \
 	"6." "Repair/reinstall GRUB" \
 	"7." "Exit")
-	selection="$(showMenu "MAIN MENU" "FSarchiver-Backup" "\nPlease select from Menu" "15" "50" "5" "${MENU[@]}")"
+	selection="$(showMenu "MAIN MENU" "FSarchiver-Backup v.26.1.30" "\nPlease select from Menu" "15" "50" "5" "${MENU[@]}")"
 	case "$selection" in
 	"1.")
 		echo "Backup EFI & System partitions"
