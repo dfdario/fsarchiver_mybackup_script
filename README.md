@@ -4,7 +4,7 @@ This script is derived from the two's available at: https://github.com/lexo-ch/f
 I kept some parts from them to cover my needs in: performing complete backups/restores and boot repair of my systems and those of my friends.
 Since I use Manjaro as my preferred OS which is derived from ArchLinux, I am not able to run qt-fsarchiver because it is available only for other distributions.
 What I appreciate of fsarchiver is the ability to perform restores even on smaller devices which no other freely available software has.
-Even I am not so good at bash scripts I by hook or by crook written all the necessary lines to have a usable program to perform backup, restore and grub repair.
+Even I am not so good at bash scripts I by hook or by crook written all the required lines to have a usable program to perform backup, restore and grub repair.
 If any other that may do it better I'll appreciate.
 
 Disclaimer
