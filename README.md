@@ -17,3 +17,9 @@ I created this software for personal use, as there was no other similar software
 I'm sharing it with you in the hope that you find it useful.
 
 	Dario (Italy)
+
+HOWTO RUN IT
+1. Download the script from this site
+2. Make it executable chmod +x fsarchiver:mybackup.sh
+3. Run with sudo: sudo ./fsarchiver_mybackup.sh
+
