@@ -1,8 +1,9 @@
 #!/bin/bash
-#
+# 
+release="v.26.2.12"
 # THIS SCRIPT IS BASED ON THE TWO AVAILABLE AT:
 # https://github.com/lexo-ch/fsarchiver-encrypted-full-system-backup-script-with-email-monitoring
-#	AND
+# and...
 # https://github.com/AndresDev859674/boot-repair
 # 
 #####################################################################
@@ -39,6 +40,7 @@ fi
 #fi
 #exec 2> >(tee -a ${DEBUG_FILE} >&2) # Add to existing
 #exec &> >(sudo tee "$DEBUG_FILE")
+#
 #####################################################################
 function user_configuration() {
 	#####################################################################
@@ -527,7 +529,7 @@ function askPass() {
 	done
 }
 
-function defPsw() {
+function def_psw() {
 	backtitle="PASSWORD DEFINITION:"
 	local retcode=0
 	local psw1
@@ -628,13 +630,13 @@ function select_bkup_d-f() {
 		#
 		#if [ ! "${CURR_DIR}" = "${START_DIR}" ]; then
 		if [ ! "${START_DIR}${CURR_DIR}" = "${START_DIR}/" ]; then
-			ARR_PARAMETER=( "< Back >" "Back one directory" ${ARR_PARAMETER[@]} )
-			ARR_PARAMETER=( "< Finish >" "Select current directory" ${ARR_PARAMETER[@]} )
+			ARR_PARAMETER=( "< Back >" "Back one selection" ${ARR_PARAMETER[@]} )
+			ARR_PARAMETER=( "< Select >" "Select current file/directory" ${ARR_PARAMETER[@]} )
 		fi
 
 	# display the dialog box to choose devices
 		DRILL="Please select a directory/file from:\n${bold}${CURR_DIR}${nc}.\n< Finish > confirm, < OK > drill down, < Cancel > exit."
-		CHOICE=$(showMenu  "DIRECTORY SELECTION" "FSarchiver-Backup" "$DRILL" "18" "70" "5" "${ARR_PARAMETER[@]}")
+		CHOICE=$(showMenu  "PARTITION/FILE SELECTION" "FSarchiver-Backup" "$DRILL" "18" "70" "5" "${ARR_PARAMETER[@]}")
 		if [[ $? -ne 0 ]]; then
 			return 1
 		fi
@@ -643,7 +645,7 @@ function select_bkup_d-f() {
 			"< Back >")
 				CURR_DIR="${PREV_DIR%*}"
 			;;
-			"< Finish >")
+			"< Select >")
 				CHOICE=${CURR_DIR}
 				echo ${CURR_DIR}
 				return 0
@@ -695,81 +697,149 @@ done
 }
 
 #####################################################################
-# Select a disk/partition
+# Select a disk
 #####################################################################
 # Input:
 # $1 Containing the prompt to show in menu
-# $2 Containing filter between "disk" and "part" for disk and partition
-# $3 Containing "-i" for include or "-v" to exclude
-# $4 Containing for example "vfat" or "extX" in combination with $3
+# $2 Containing "-E -i" for include or "-E -iv" to exclude
+# $3 Containing for example "sdx" or "sdx|sdy" 
+#    or even "/dev/sdx|/dev/sdy", etc always combined with $2
+#    for include or exclude HD. /dev/ and X will be automatically removed
+# Output: 
+#    Selected disk
+#
+function select_disk() {
+	#Function to choose a disk
+	#
+	IFS=$'\ \t\n' # set IFS to its default value
+	local arr_disk=() dsk=() dv disk 
+	# list all USB devices, excluding root & hubs
+	dsk=`(lsblk -l -o TYPE,PATH,SIZE,MODEL | grep -E -i 'disk' | cut -d' ' -f2-)`
+	if [ "${2}" ]; then 
+		if [[ $3 = *"/dev/"* ]]; then dv="$(echo $3 | sed 's|/dev/||g' | sed 's/[0-9]//g' )"; else dv=$3; fi
+		dsk=$(printf '%s\n' "${dsk[@]}" | grep $2 $dv)
+	fi
+	arr_disk=$(printf '%s\n' "${dsk[@]}" | sed -e 's/\(\/dev\/sd[a-z]\) \(.*\)./\1\n \2\n/g')
+	IFS=$'\n'
+	disk="$(showMenu  "Disk choice" "FSarchiver-Backup" "$1" 18 60 5 ${arr_disk[@]})"
+	if [[ ! "${disk}" || $? -ne 0 ]]; then
+		return 1
+	fi
+	disk=`echo ${disk}| tr -d '"'`
+	IFS=$'\ \t\n' # set IFS to its default value
+	echo $disk
+	return 0
+}
+
+#####################################################################
+# Select a partition
+#####################################################################
+# Input:
+# $1 Containing the prompt to show in menu
+# $2 Containing "-E -i" for "ignore case" in search or "-E -iv" to "ignore case"
+#    and exclude passed value
+# $3 Containing for example: "$UUID" or "/dev/sdXY" in combination with $2
+#    for include or exclude or even values separated by "|". 
+#    To select nothing and select everything use a value like "---" or whatever
+# $4 Containing a value for not to be checked if is mounted eg. "nocheck"
 # Output:
-# Selected disk/partition
-function select_device() {
+#    Selected partition
+function select_part-file() {
 	#Function to choose a device
 	#
+	#printf %q "$IFS"
+	IFS=$'\ \t\n' # set IFS to its default value
+	local arr_tot=() device_id=() list_device=() arr_parameters=() type=() size=() dev_uuid=() device uuid gpterr
+	local no_umount="$4"
+	blk=`(lsblk -l -o PATH,SIZE,FSTYPE,LABEL,PARTTYPE,TYPE | grep -E 'part' | grep $2 $3 )`
+	device_id=(`echo "${blk[@]}" | cut -d' ' -f1`)
 	IFS=$'\n'
-	local arr_tot=() device_id=() list_device=() arr_parameter=() devid device uuid gpterr
-	local no_umount="$5"
-	# list all USB devices, excluding root & hubs
-	BLK=(`lsblk -l -o NAME,SIZE,FSTYPE,UUID,PARTTYPE,TYPE | grep -e $2`)
-	if [ $3 ]; then BLK=(`printf '%s\n' "${BLK[@]}" | grep $3 $4`); fi
-	arr_tot=(`printf '%s\n' "${BLK[@]}" | awk -F' '  '{print $1" ",$2" ",$3" ",$4" "}'`) 
-	device_id=(`printf '%s\n' "${BLK[@]}" | awk -F' '  '{print $1}'`)
-	list_device=(`printf '%s\n' "${BLK[@]}" | awk -F' '  '{print $3,$2,$4}'`)
-	# loop through the devices array to generate menu parameter
-	for (( i=${#device_id[@]}-1; i>=0; i-- ));
+	for ((i = 0 ; i < "${#device_id[@]}"; i++ ))
 	do
-		# if needed, remove [xxx] from device name as it gives trouble with grep
 		devid=`echo "${device_id[i]}"`
-		device=`echo "${list_device[i]}" | sed 's/\[.*\]//g'`
-		# add it to the parameters list
-		arr_parameter+=( ${devid} ${device} )
+		str=`lsblk -lno PATH,SIZE,FSTYPE,LABEL,PARTTYPENAME | grep -E -i "${device_id[i]}" | cut -d' ' -f2-`
+		arr_parameters+=("${devid}" "${str}")
 	done
-	showMenu  "device choice" "FSarchiver-Backup" "$1" "18" "60" "5" "${arr_parameter[@]}"
+	device="$(showMenu  "File choice" "FSarchiver-Backup" "$1" "18" "70" "5" ${arr_parameters[@]})"
 	if [[ ! "${device}" || $? -ne 0 ]]; then
 		return 1
 	fi
-	device=`echo ${choice}| tr -d '"'`
-	for i in "${!arr_tot[@]}"; do
-		if [[ "${device_id[$i]}" = "${choice}" ]]; then
-			uuid=`echo "${arr_tot[$i]}" | awk -F' '  '{print $4}' | tr -d '"'`
-			if check_uuid_mounted ${uuid} && [ ! "${no_umount}" ]; then
-				if [ `df -P / | sed -n '$s/[[:blank:]].*//p'` = "/dev/${device}" ]; then
-					showInfo "The partition ${red}${bold}/dev/${device}${nc} you have selected is the one you are running on, then for security reasons it ${red}${bold}will not be unmounted${nc}." 8 50 5
+	device=`echo ${device}| tr -d '"'`
+	if check_dev_mounted ${device} && [ ! "${no_umount}" ]; then
+		if [ `df -P / | sed -n '$s/[[:blank:]].*//p'` = "${device}" ]; then
+			if [ $DO_CHOICE = "Backup" ]; then
+				showYN "The partition ${red}${bold}${device}${nc} you have selected is \
+the one you are running on, then it ${red}${bold}could not be unmounted${nc}.\n\n \
+${bold}FSarchiver allow to save a filesystem which is mounted in read-write (live backup)${nc}.\n\n
+${red}${bold}Would you like to perfom the Backup in this way?${nc}" 15 55 1
+				if [[ $? -eq 1 ]]; then
+					return 1;
 				else
-					umount /dev/${device}
+					no_umount="do not"
 				fi
+			else
+				showInfo "The partition ${red}${bold}${device}${nc} you have selected is the one you are running on, then for security reasons it ${red}${bold}will not be unmounted${nc}.\n Exiting in 5 seconds." 8 50 5
+				return 1
 			fi
+		else
+			umount ${device}
 		fi
-	done
-
-	#uuid=`echo ${choice}| awk -F' '  '{print $2}' | tr -d '"'`
-	gpterr="$(sgdisk -v /dev/$(echo $device | sed 's/[0-9]//g'))" # Check GPT partition table and repair
+	fi
+	gpterr="$(sgdisk -v $(echo $device | sed 's/[0-9]//g'))" # Check GPT partition table and repair
 	if [ $? -ne 0 ]; then
 		showYN "The "$(echo $device | sed 's/[0-9]//g')" disk has problems and FSarchiver may not work properly\n \
 		before use you should repair with commands:\n \
-		sgdisk -r /dev/"$(echo $device | sed 's/[0-9]//g')"\n \
+		sgdisk -r "$(echo $device | sed 's/[0-9]//g')"\n \
 		or other expert commands\n      Would you continue anyway?" 15 70 1
 		if [[ $? -eq 1 ]]; then
 			return 1;
 		fi
 	fi
 	if [ ! "${no_umount}" ]; then	# If is mounted and should not be checked
-		local fstype=$(findmnt -n -o FSTYPE "/dev/$device" 2>/dev/null)
+		local fstype=$(findmnt -n -o FSTYPE "$device" 2>/dev/null)
 		if [[ "${fstype}" = @("ext4"|"ext3"|"ext2") ]]; then # If EXTn verify partition consistency
-			local res="$(e2fsck -vfy "/dev/${device}")"
-			if [ $res ]; then
+			local res="$(e2fsck -vfy "${device}")"
+			if [[ $res ]]; then
 				showError "$res\n\n    program will exit." 10 40
 				return 8;
 			fi
 		fi
 	fi
-	DEVICE=$device
-	#IFS="\ " read -a arr_choice <<< "$choice"
-	#echo "device: "$device
-	#echo "UUID: "$uuid
+	echo $device
 	return 0
 }
+
+#########################################################
+# Shows a Gauge dialog based on inputs:
+# 1. PID of FSARCHIVER process
+# 2. Backup or Restore depending on the calling process
+# Beware: The function does not return until the PID of the
+# FSARCHIVER process is active
+# Output: returns the fsarchiver exit code.
+#########################################################
+function showGauge() {
+start_time=$(date +"%s")
+c_pid="$1"
+	while ps $c_pid > /dev/null; do
+		elap=$(($(date +"%s")-${start_time}))
+		elap_M=$((${elap} / 60))
+		elap_S=$((${elap} % 60))
+		doing=$(tail -n 1 "/tmp/fsaproc" | grep Analysing)
+		if [ "$doing" ] ; then
+			msg="\nBe patient. $2 has started and may take some time to complete.\n${bold}Now:${nc} $doing\n\n    ${blue}${bold}Time elapsed: ${elap_M} minute(s) $(($elap_S)) seconds${nc}"
+			percent=0
+		else
+			percent=$(tail -n 1 "/tmp/fsaproc" | grep -oP "(\d+(\.\d+)?(?=%))")
+			if ! [[ $percent =~ ^[0-9]+$ ]] ; then percent=0; fi
+			msg="\nBe patient. $2 has started and may take some time to complete.\n\n    ${blue}${bold}Time elapsed: ${elap_M} minute(s) $(($elap_S)) seconds${nc}"
+		fi
+		echo "$percent" | dialog --keep-window --title "Performing $2" --colors --gauge "$msg" 12 60 0
+		sleep 5
+	done
+	local fsarch_exit_code=$?
+	echo $fsarch_exit_code
+}
+
 
 #########################################################
 # Function to check if a UUID is mounted or not
@@ -785,9 +855,15 @@ function check_uuid_mounted() {
 	return 1
 }
 
-function check_device_mounted() {
-	local mount
-	mount=$(lsblk -r -o UUID,MOUNTPOINT | awk -v u="$1" '$1 == u {print $2}')
+#########################################################
+# Function to check if a device is mounted or not
+# Input:  The NAME of the drive, no matter if strats
+#         with /dev/ or not
+# Output: Returns value 0 if mounted, 1 if not mounted
+function check_dev_mounted() {
+	local mount dv
+	dv=$(echo $1 | if [ "^/dev/" ]; then sed 's|/dev/||'; fi)
+	mount=$(lsblk -r -o NAME,MOUNTPOINT | awk -v u="$dv" '$1 == u {print $2}')
 	if [[ -n $mount ]]
 	then
 		return 0
@@ -1139,6 +1215,13 @@ function showError() {
 	return 1
 }
 
+function showPause() {
+	# Input "Infor_msg" "Height" "Width" "Prompt_duration"
+	dialog --colors \
+	`if [[ $5 = 1 ]]; then echo --defaultno; fi` \
+	--pause "$1" "$2" "$3" "$4" 2>&1 >/dev/tty
+}
+
 function showInfo() {
 	# Input "Infor_msg" "Height" "Width" "Prompt_duration"
 	dialog --colors --infobox "$1" "$2" "$3" 2>&1 >/dev/tty
@@ -1172,7 +1255,7 @@ function EFIin() {
 	local efipart
 	while true;
 		do
-		efipart="$(select_device "\n${bold}Please select the ${red}EFI${nc}${bold} boot Partition${nc}" "part" "-i" "c12a7328-f81f-11d2-ba4b-00a0c93ec93b")"
+		efipart="$(select_part-file "\n${bold}Please select the ${red}EFI${nc}${bold} boot Partition${nc}" "-E -i" "c12a7328-f81f-11d2-ba4b-00a0c93ec93b")"
 		case $? in
 		0 ) 
 			echo $efipart
@@ -1193,7 +1276,7 @@ function SYSin() {
 	local syspart
 	while true;
 		do
-		syspart=$(select_device "\n${bold}Please select the ${red}SYSTEM${nc}${bold} Partition to be archived${nc}" "part" "-v" "fat")
+		syspart="$(select_part-file "\n${bold}Please select the ${red}SYSTEM${nc}${bold} Partition to be archived${nc}" "-E -iv" "c12a7328-f81f-11d2-ba4b-00a0c93ec93")"
 		case $? in
 		0 ) 
 			echo $syspart
@@ -1566,7 +1649,7 @@ function find_backup_drive_by_uuid() {
 			if [ ! -d /tmp/sce ]; then
 				mkdir /tmp/sce
 			fi
-			mount /dev/${DEVICE} /tmp/sce
+			mount ${DEVICE} /tmp/sce
 			sleep 3
 			mount_points=$(findmnt -n -o TARGET "$device_path" 2>/dev/null | tr ' ' '\n')
 		fi
@@ -1783,7 +1866,6 @@ function validate_backup_drive() {
 					return 1
 				fi
 			fi
-			#bbbb
 			echo -e "${GREEN}✓ Backup drive UUID: $backup_drive_uuid${NC}"
 			printf '%s\n' "${BACKUP_PARAMETERS[@]}"
 			# Check if any of the sources is on the same drive
@@ -1864,16 +1946,28 @@ function do_backup() {
 	if [[ "$ZSTD_COMPRESSION_VALUE" > "0" ]]; then
 		COMPRESSION_VALUE="-Z"$ZSTD_COMPRESSION_VALUE
 	fi
-	showInfo "Be patient. Backup has started and may take some time to complete...." 8 40
+	#showInfo "Be patient. Backup has started and may take some time to complete...." 8 40
 	# fsarchiver command depending on encryption configuration
 	if [[ "$USE_ENCRYPTION" == true ]]; then
-			ERROR_MSG=$({ fsarchiver "${exclusions[@]}" -o -v -A -j$(nproc) ${COMPRESSION_VALUE} -c "${FSPASS}" savefs "$backup_file" "$device"; } 2>&1 | tee -a $BACKUP_LOG )
+			#ERROR_MSG=$({ fsarchiver "${exclusions[@]}" -o -v -A -j$(nproc) ${COMPRESSION_VALUE} -c "${FSPASS}" savefs "$backup_file" "$device"; } 2>&1 | tee -a $BACKUP_LOG )
+			fsarchiver "${exclusions[@]}" -o -v -A -j$(nproc) ${COMPRESSION_VALUE} -c "${FSPASS}" savefs "$backup_file" "$device" > /tmp/fsaproc 2>&1 &
 			#fsarchiver "${EXCLUDE_STATEMENTS[@]}" -o -v -d -A -j$(nproc) -Z$ZSTD_COMPRESSION_VALUE -c "${FSPASS}" savefs "$backup_file" "$device" 2>&1 | tee -a $BACKUP_LOG &
+			CURRENT_FSARCHIVER_PID=$!
 	else
-			ERROR_MSG=$({ fsarchiver "${exclusions[@]}" -o -v -A -j$(nproc) ${COMPRESSION_VALUE} savefs "$backup_file" "$device"; } 2>&1 | tee -a $BACKUP_LOG )
+			#ERROR_MSG=$({ fsarchiver "${exclusions[@]}" -o -v -A -j$(nproc) ${COMPRESSION_VALUE} savefs "$backup_file" "$device"; } 2>&1 | tee -a $BACKUP_LOG )
+			fsarchiver "${exclusions[@]}" -o -v -A -j$(nproc) ${COMPRESSION_VALUE} savefs "$backup_file" "$device" > /tmp/fsaproc 2>&1 &
 			#fsarchiver "${EXCLUDE_STATEMENTS[@]}" -o -v -d -A -j$(nproc) -Z$ZSTD_COMPRESSION_VALUE savefs "$backup_file" "$device" 2>&1 | tee -a $BACKUP_LOG &
+			CURRENT_FSARCHIVER_PID=$!
    	fi
+	showGauge $CURRENT_FSARCHIVER_PID "Backup"
 	local fsarchiver_exit_code=$?
+	echo $fsarchiver_exit_code
+	# Reset fsarchiver PID (finished)
+	CURRENT_FSARCHIVER_PID=""
+	#As an alternative to fsarchiver_exit_code if not properly working
+	#excode=(`tail -n 1 "/tmp/fsaproc" | grep -oe '\([0-9.]*\)' | tr -d "."`)
+	#declare -i fsarchiver_exit_code
+	#IFS=+ fsarchiver_exit_code="${excode[*]}"
 
 	# Check if script was interrupted
 	if [[ "$SCRIPT_INTERRUPTED" == true ]]; then
@@ -1982,7 +2076,7 @@ function check_backup_errors() {
 	fi
 }
 
-function MainBackup() {
+function main_backup() {
 	#####################################################################
 	#  FSARCHIVER BACKUP PART STARTS HERE
 	#####################################################################
@@ -2071,8 +2165,8 @@ function MainBackup() {
 		devefi=$(EFIin)
 		if [[ $? -ne 0 || ! "${devefi}" ]]; then return 1; fi
 		DEVICE=$devefi
-		UUID=$(lsblk -no UUID "/dev/${devefi}"  2>/dev/null)
-		BACKUP_PARAMETERS["EFI"]="backup-efi:/dev/${devefi}"
+		UUID=$(lsblk -no UUID "${devefi}"  2>/dev/null)
+		BACKUP_PARAMETERS["EFI"]="backup-efi:${devefi}"
 		echo "${DEVICE}"
 		echo "${UUID}"
 		SOURCE_UUID=("${UUID}")
@@ -2082,11 +2176,11 @@ function MainBackup() {
 		devsys=$(SYSin)
 		if [[ $? -ne 0 || ! "${devsys}" ]]; then return 1; fi
 		DEVICE=$devsys
-		UUID=$(lsblk -no UUID "/dev/${devsys}"  2>/dev/null)
+		UUID=$(lsblk -no UUID "${devsys}"  2>/dev/null)
 		echo "${DEVICE}"
 		echo "${UUID}"
 		SOURCE_UUID+=("${UUID}")
-		BACKUP_PARAMETERS["System"]="backup-system:/dev/${devsys}"
+		BACKUP_PARAMETERS["System"]="backup-system:${devsys}"
 	fi
 	 printf '%s\n' "${SOURCE_UUID[@]}" 
 	# Process backup parameters and update paths
@@ -2135,11 +2229,10 @@ function MainBackup() {
 	#####################################################################
 	while true;
 	do
-		DEVICE=$(select_device "\n${bold}Please select the ${red}Drive ${nc}${bold} where to ${red}store Backup(s)${nc}" "part" "-v" "fat\|${DEVICE}"  "no_unmount")
-		UUID=$(lsblk -no UUID "/dev/${DEVICE}"  2>/dev/null)
+		DEVICE="$(select_part-file "\n${bold}Please select the ${red}Drive ${nc}${bold} where to ${red}store Backup(s)${nc}" "-E -iv" "(c12a7328-f81f-11d2-ba4b-00a0c93ec93|${DEVICE})"  "no_unmount")"
+		UUID=$(lsblk -no UUID "${DEVICE}"  2>/dev/null)
 		BACKUP_DRIVE_UUIDS+=("$UUID")
 		printf "%s" "${BACKUP_DRIVE_UUIDS[@]}"
-		#aaaaaaaaaaaaaaa
 		if [[ $? -ne 0 || ! "${DEVICE}" ]]; then
 			showYN "Nothing was selected\nWould you retry?" 10 40
 			if [[ $? -ne 0 ]]; then
@@ -2239,7 +2332,7 @@ function MainBackup() {
 		USE_ENCRYPTION=true
 		echo -e "${GREEN}✓ Encryption enabled${NC}"
 	else
-		defPsw
+		def_psw
 		if [ "$?" == "0" ]; then
 			export FSPASS
 			USE_ENCRYPTION=true
@@ -2398,13 +2491,13 @@ function MainBackup() {
 #  CHECK BACKUP FILE
 #####################################################################
 #
-function CheckBackup() {
+function check_backup() {
 	# Added for compatibility with backup function
 	ARCH_DIR=".." # Default directory where backup are stored
 	###########################
 	while true;
 		do
-		DEVICE=$(select_device "\nPlease select the file you wish information about" "part" "-v" "fat" "no_unmount")
+		DEVICE="$(select_part-file "\nPlease select the file you wish information about" "-E -iv" "c12a7328-f81f-11d2-ba4b-00a0c93ec93" "no_unmount")"
 		if [[ $? -ne 0 || ! "${DEVICE}" ]]; then
 			showYN "No file selected\nWould you retry?" 10 40
 			if [[ $? -ne 0 ]]; then
@@ -2412,10 +2505,10 @@ function CheckBackup() {
 			fi
 		else
 			echo "${DEVICE}"
-			UUID=$(lsblk -no UUID "/dev/${DEVICE}"  2>/dev/null)
+			UUID=$(lsblk -no UUID "${DEVICE}"  2>/dev/null)
 			echo "${UUID}"
 			SOURCE_UUID+=("${UUID}")
-			BACKUP_PARAMETERS["System"]="backup-system:/dev/${DEVICE}"
+			BACKUP_PARAMETERS["System"]="backup-system:${DEVICE}"
 			break;
 		fi
 	done
@@ -2461,7 +2554,8 @@ function CheckBackup() {
 #  PERFORM RESTORE
 #####################################################################
 #
-function MainRestore() {
+function main_restore() {
+	local s_device
 	# Record estore start time
 	TIME_START=$(date +"%s")
 	RESTORE_START_DATE=$(date +%d.%B.%Y,%T)
@@ -2484,7 +2578,7 @@ function MainRestore() {
 	set DEVICE, UUID, BK_FILE
 	while true;
 		do
-		select_device "\nPlease select the file to restore" "part" "-v" "fat"  "no_unmount"
+		DEVICE="$(select_part-file "\nPlease select the place where is stored the file to restore" "-E -iv" "c12a7328-f81f-11d2-ba4b-00a0c93ec93"  "no_unmount")"
 		if [[ $? -ne 0 || ! "${DEVICE}" ]]; then
 			showYN "Nothing selected\nWould you retry?" 10 40
 			if [[ $? -ne 0 ]]; then
@@ -2493,10 +2587,10 @@ function MainRestore() {
 			fi
 		else
 			echo "${DEVICE}"
-			UUID=$(lsblk -no UUID "/dev/${DEVICE}"  2>/dev/null)
-			S_DEVICE="/dev/${DEVICE}"
+			UUID=$(lsblk -no UUID "${DEVICE}"  2>/dev/null)
+			s_device="${DEVICE}"
 			S_UUID=("${UUID}") # Source UUID
-			BACKUP_PARAMETERS["System"]="backup-system:/dev/${DEVICE}"
+			BACKUP_PARAMETERS["System"]="backup-system:${DEVICE}"
 			break;
 		fi
 	done
@@ -2533,14 +2627,15 @@ function MainRestore() {
 	fi
 	echo "$F_INFO" 2>&1 | tee -a $BACKUP_LOG
 	showMsg "$F_INFO" 30 70
-	F_INFO=`echo $F_INFO | tr -d '[:cntrl:]'`  # Cleanup because of spurious characters in variable
-	echo $F_INFO
-	ORG_DEV=$(echo $F_INFO | sed -e 's/.*device:\s*\(\/dev\/[^ ]*\).*/\1/g')
-	ORG_FORM=$(echo $F_INFO | sed -e "s/.*system format:\s\+\([a-z|A-Z|0-9]\w\+\).*/\1/g")
-	ORG_USIZE=$(echo $F_INFO | sed -e 's/^.*size:.*(\([0-9]\+\).*)/\1/g')
-	ORG_UUID=$(echo $F_INFO | sed -e 's/.*uuid:\s*\([a-zA-Z0-9\-]\+\).*/\1/g')
-	ORG_LABEL=$(echo $F_INFO | sed -e 's/.*label:\s\([<>a-z A-Z]\+\)\(.*Filesystem.*\)/\1/g' | tr -d ' ')
-	if [ "${ORG_LABEL}" = "<none>" ]; then ORG_LABEL=""; fi
+	ORG_DEV=$(echo $F_INFO | grep -Poi 'device: \K[^ ]*')
+	ORG_FORM=$(echo $F_INFO | grep -Poi 'system format: \K[^ ]*')
+	ORG_SIZE=$(echo $F_INFO | grep -Po 'system size:.*?\(\K[^\s?bytes\)]*' | tr -d "'")
+	ORG_USIZE=$(echo $F_INFO | grep -Po 'used in filesystem:.*?\(\K[^\s?bytes\)]*' | tr -d "'")
+	ORG_UUID=$(echo $F_INFO | grep -Poi 'uuid: \K[^ ]*')
+	ORG_LABEL=$(echo $F_INFO | grep -Poi 'archive label: \K[^ ]*')
+	ORG_ENC=$(echo $F_INFO | grep -Poi 'algorithm: \K[^ ]*')
+	if [[ "${ORG_LABEL}" == *"none"* ]]; then ORG_LABEL=""; fi
+	if [[ "${ORG_ENC}" == *"none"* ]]; then ORG_ENC=""; fi
 #
 	echo "Original device: "$ORG_DEV
 	echo "Bkup fIle: "$BK_FILE
@@ -2550,23 +2645,24 @@ function MainRestore() {
 #
 	while true;
 		do
-		select_device "\nPlease select the disk/partition where to restore to" "disk" "-v" "fat"
-		if [[ $? -ne 0 || ! "${DEVICE}" ]]; then
+		rdisk=`df -P / | sed -n '$s/[[:blank:]].*//p' | sed 's/[0-9]//g'` # the current running disk
+		hdu=$(select_disk "\nPlease select the DISK where to restore ${bold}${BK_FILE##*/}${nc}\n(original size: ${bold}${red}`numfmt --to=iec $ORG_USIZE`${nc})" "-E -iv" "($s_device|$rdisk)") # source disk and running disk excluded
+		if [[ $? -ne 0 || ! "${hdu}" ]]; then
 			showYN "No partition selected\nWould you retry?" 10 40
 			if [[ $? -ne 0 ]]; then
 				return 1;
 			fi
 		else
 			echo "${DEVICE}"
-			UUID=$(lsblk -no UUID "/dev/${DEVICE}"  2>/dev/null)
+			UUID=$(lsblk -no UUID "${DEVICE}"  2>/dev/null)
 			echo "${UUID}"
 			D_DISK="${DEVICE}"
 			D_UUID=("${UUID}") # Destination UUID
-			RESTORE_PARAMETERS="backup-system:/dev/${DEVICE}"
+			RESTORE_PARAMETERS="backup-system:${DEVICE}"
 			break;
 		fi
 	done
-	if [[ ! $(partprobe -d -s /dev/$DEVICE | sed -e 's/^.*partitions\s*//g') ]]; then
+	if [[ ! $(partprobe -d -s $DEVICE | sed -e 's/^.*partitions\s*//g') ]]; then
 		showMsg "The $DEVICE device you selected has no partitions yet.\nPlease run gpart or other useful program to partitioning first.\n\nProgram will exit now." 15 60
 		#cleanup_on_interrupt
 		#exit 1;
@@ -2574,7 +2670,7 @@ function MainRestore() {
 	fi
 	while true;
 		do
-		select_device "\nPlease select the partition where to restore" "part" "$DEVICE" ""
+		DEVICE="$(select_part-file "\nPlease select the partition in which to restore: ${bold}${BK_FILE##*/}${nc}\n(original size: ${bold}${red}`numfmt --to=iec $ORG_USIZE`${nc})" "-E -i" "$hdu")"
 		if [[ $? -ne 0 || ! "${DEVICE}" ]]; then
 			showYN "No partition selected\nWould you retry?" 10 40
 			if [[ $? -ne 0 ]]; then
@@ -2583,18 +2679,18 @@ function MainRestore() {
 		else
 			echo "${DEVICE}"
 			echo "${UUID}"
-			D_DEVICE="/dev/${DEVICE}"
+			D_DEVICE="${DEVICE}"
 			D_UUID=("${UUID}")
-			RESTORE_PARAMETERS="restore-system:/dev/${DEVICE}"
-			if [[ "${S_DEVICE: :-1}" == "${D_DEVICE: :-1}" ]]; then
-				showError "Source' (UUID: $S_UUID) is on the same drive as restore target '/dev/${D_DISK}'" 10 60
+			RESTORE_PARAMETERS="restore-system:${DEVICE}"
+			if [[ "${s_device: :-1}" == "${D_DEVICE: :-1}" ]]; then
+				showError "Source' (UUID: $S_UUID) is on the same drive as restore target '${D_DISK}'" 10 60
 				echo -e "${RED}Source '$source' (UUID: $source_uuid) is on the same drive as backup target '$backup_drive_path'${NC}"
 				return 1
 			fi
 			break;
 		fi
 	done
-	if check_uuid_mounted ${UUID}; then
+	if check_dev_mounted ${DEVICE}; then
 		showYN "\n${red}${bold}The selected partition '$DEVICE' is currently mounted!\n\\n
 The restore couldn't be done on a mounted partition!${nc}\n\
 \n     ${bold}Would you like I unmount '$DEVICE' for you?\n\n
@@ -2603,14 +2699,14 @@ case the restore process will be interrupted.${nc}" 16 60
 		if [[ $? -ne 0 ]]; then
 			return 1
 		fi
-		if umount "/dev/$DEVICE" 2>/dev/null; then
+		if umount "$DEVICE" 2>/dev/null; then
 			showInfo "\n${green}${bold}$DEVICE  ✓ Successfully unmounted${nc}" 8 40 3
 		else
 			 "${yellow} - Umount failed, you have to do by yourself. Now exiting...${nc}" 8 40 10
 			return 1
 		fi
 	fi
-	PAR_SIZE=$(lsblk -b --output SIZE -n -d /dev/"${DEVICE}")
+	PAR_SIZE=$(lsblk -b --output SIZE -n -d "${DEVICE}")
 #
 	#RS_FILE=$(echo `select_bkup_d-f $(best_dir ${UUID}) "fsa"`)
 	echo "Original device: "$ORG_DEV
@@ -2619,6 +2715,7 @@ case the restore process will be interrupted.${nc}" 16 60
 	echo "Original used size: "$ORG_USIZE
 	echo "Partition size: "$PAR_SIZE
 	echo "Original UUID: "$ORG_UUID
+	echo "Encryption: "$ORG_ENC
 	if [[ $? -ne 0 ]]; then
 		return 1
 	fi
@@ -2660,38 +2757,50 @@ Minimum space required: ${bold}$((${REF_SIZE}/1048576)) MB (Backup+10%)${nc}\n\
 		FORM=$ORG_FORM
 	fi
 	LABEL=$(showInput "INPUT LABEL" "Current FS label is: ${bold}${ORG_LABEL}${nc}\n\n    Please enter your if you want to change it." 15 60 "${ORG_LABEL}")
-	if [ ! $LABEL ]; then
-		if [[ $ORG_USIZE -le 629145600 || `grep -E "efi|EFI"<<< ${BK_FILE##*/}` ]]; then # if size less or equal 600MB assumed is EFI
-			LABEL="EFI"
-		else
-			LABEL="root";
-		fi
-	fi
-	showYN "The restore will be done with the following parameters:\n  Device to wich to restore: ${bold}${DEVICE}${nc}\n  With the FSformat: ${bold}$FORM${nc}\n  With the Label: ${bold}$LABEL${nc}\n  and UUID: ${bold}$UUID${nc}\n\n     ${bold}Do you want to proceed?${nc}" 15 60
+	#if [ ! $LABEL ]; then
+	#	if [[ $ORG_USIZE -le 629145600 || `grep -E "efi|EFI"<<< ${BK_FILE##*/}` ]]; then # if size less or equal 600MB assumed is EFI
+	#		LABEL="EFI"
+	#	else
+	#		LABEL="root";
+	#	fi
+	#fi
+	showYN "The restore will be done with the following parameters:\n  Device to wich to restore: ${bold}${DEVICE}${nc}\n  With FSformat: ${bold}$FORM${nc}\n  With Label: ${bold}$LABEL${nc}\n  and UUID: ${bold}$UUID${nc}\n\n     ${bold}Do you want to proceed?${nc}" 15 60
 	if [[ $? -ne 0 ]]; then
 		return 1
 	fi
-	showInfo "Be patient. Restore has started and may take some time to complete...." 8 40
-	RESULT=$({ fsarchiver restfs ${BK_FILE} id=0,dest=/dev/${DEVICE},label=$LABEL,mkfs=${FORM},uuid=$UUID; } 2>&1 | tee -a $BACKUP_LOG )
-	if [[ $RESULT == *"provide the password"* ]]; then
+	#showInfo "Be patient. Restore has started and may take some time to complete...." 8 40
+	if [[ $ORG_ENC ]]; then
 		askPass "\nThe file is secured by password.\nPlease provide it." 10 50
 		if [[ $? -ne 0 ]]; then return 1; fi
 		showInfo "Be patient. Restore has started and may take some time to complete...." 8 40
-		MSG=$({ fsarchiver restfs -c "${FSPASS}" ${BK_FILE} id=0,dest=/dev/${DEVICE},label=$LABEL,mkfs=${FORM},uuid=$UUID; } 2>&1 )
-		local fsarchiver_exit_code=$?
-		if [[ $fsarchiver_exit_code -ne 0 ]]; then showMsg "\nWrong password, exit now" 6 30; return 1; fi
+		fsarchiver restfs -v  -c "${FSPASS}" ${BK_FILE} id=0,dest=${DEVICE},label=$LABEL,mkfs=${FORM},uuid=$UUID > /tmp/fsaproc 2>&1 &
 	else
 		showInfo "Be patient. Restore has started and may take some time to complete...." 8 40
-		MSG=$({ fsarchiver restfs ${BK_FILE} id=0,dest=/dev/${DEVICE},label=$LABEL,mkfs=${FORM},uuid=$UUID; } 2>&1 )
-		if [[ $fsarchiver_exit_code -ne 0 ]]; then showMsg "\nSomething went wrong, exit now" 6 30; return 1; fi
+		fsarchiver restfs -v  ${BK_FILE} id=0,dest=${DEVICE},label=$LABEL,mkfs=${FORM},uuid=$UUID > /tmp/fsaproc 2>&1 &
 	fi
-	echo "$MSG" 2>&1 | tee -a $BACKUP_LOG
-	showMsg "$MSG" 30 70
+	CURRENT_FSARCHIVER_PID=$!
+	showGauge $CURRENT_FSARCHIVER_PID "Restore"
+	local fsarchiver_exit_code=$?
+	echo $fsarchiver_exit_code
+	# Reset fsarchiver PID (finished)
+	CURRENT_FSARCHIVER_PID=""
+	#As an alternative to fsarchiver_exit_code if not properly working
+	#excode=(`tail -n 1 "/tmp/fsaproc" | grep -oe '\([0-9.]*\)' | tr -d "."`)
+	#declare -i fsarchiver_exit_code
+	#IFS=+ fsarchiver_exit_code="${excode[*]}"
+
 	# Check if script was interrupted
 	if [[ "$SCRIPT_INTERRUPTED" == true ]]; then
-		echo -e "${YELLOW}Restore was interrupted while processing $device${NC}"
+		echo -e "${YELLOW}Backup was interrupted while processing $device${NC}"
 		return 1
 	fi
+
+	# Check fsarchiver exit code
+	if [[ $fsarchiver_exit_code -ne 0 ]]; then showMsg "\nSomething went wrong, exit now" 6 30; return 1; fi
+	MSG=$(tail -n 3 "/tmp/fsaproc")
+	echo "$MSG" 2>&1 | tee -a $BACKUP_LOG
+	showMsg "$MSG" 11 70
+	# 
 	#####################################################################
 	# COMPLETION AND LOG NOTIFICATION
 	#####################################################################
@@ -2780,6 +2889,25 @@ if ! cleanup_fsarchiver_mounts true; then
     # fi
 fi
 
+showYN "${bold}Disclaimer${nc}\n \
+THIS SCRIPT IS BASED ON THE TWO's AVAILABLE AT:
+https://github.com/lexo-ch/fsarchiver-encrypted-full-system-backup-script-with-email-monitoring \n \
+and... https://github.com/AndresDev859674/boot-repair \n \
+This software is intended as a frontend of fsarchiver backup/restore program available at http://www.fsarchiver.org.\n \
+This software is provided 'as is', without warranty of any kind, express or implied, including but not \
+limited to the warranties of merchantability, fitness for a particular purpose and non-infringement.\n \
+In no event shall the author be liable for any claim, damages or other liability, whether in an action \
+of contract, tort or otherwise, arising from, out of or in connection with the software or the use or \
+other dealings in the software.\n \
+It is granted the right to freely distribute and modify this software with the sole requirement that the \
+same rights be preserved.\n \
+I created this software for personal use, as there was no other similar software that could meet my needs. \
+I'm sharing it with you in the hope that you find it useful.\n\nDario (Italy) \n\n \
+If you accept the above terms press OK."   30 80 1
+if [[ $? -ne 0 ]]; then
+	exit
+fi
+
 #####################################################################
 #  FSARCHIVER MENU
 #####################################################################
@@ -2795,32 +2923,32 @@ do
 	"5." "Restore EFI / System partitions" \
 	"6." "Repair/reinstall GRUB" \
 	"7." "Exit")
-	selection="$(showMenu "MAIN MENU" "FSarchiver-Backup v.26.1.30" "\nPlease select from Menu" "15" "50" "5" "${MENU[@]}")"
+	selection="$(showMenu "MAIN MENU" "FSarchiver-Backup $release" "\nPlease select from Menu" "15" "50" "5" "${MENU[@]}")"
 	case "$selection" in
 	"1.")
 		echo "Backup EFI & System partitions"
 		DO_CHOICE="Backup"
-		MainBackup "EFISYS"
+		main_backup "EFISYS"
 	;;
 	"2.")
 		echo "Backup EFI & System partitions"
 		DO_CHOICE="Backup"
-		MainBackup "EFI"
+		main_backup "EFI"
 	;;
 	"3.")
 		echo "Backup EFI & System partitions"
 		DO_CHOICE="Backup"
-		MainBackup "SYS"
+		main_backup "SYS"
 	;;
 	"4.")
 		echo "Check EFI & System backups"
-		DO_CHOICE="CheckBackup"
-		CheckBackup
+		DO_CHOICE="check_backup"
+		check_backup
 	;;
 	"5.")
 		echo "Restore EFI or System partitions"
 		DO_CHOICE="Restore"
-		MainRestore
+		main_restore
 	;;
 	"6.")
 		echo "6"
