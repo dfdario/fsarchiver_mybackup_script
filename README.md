@@ -1,7 +1,7 @@
 Description
 
-This script is derived from the two's available at: https://github.com/lexo-ch/fsarchiver-encrypted-full-system-backup-script-with-email-monitoring and https://github.com/AndresDev859674/boot-repair which I thanks. 
-I kept some parts from them to cover my needs in: performing complete backups/restores and boot repair of my systems and those of my friends.
+This script is derived from the two's available at: https://github.com/lexo-ch/fsarchiver-encrypted-full-system-backup-script-with-email-monitoring and https://github.com/AndresDev859674/boot-repair. I would like to thank their developers here. 
+I have taken some parts of their scripts to cover my needs for doing complete backups and restores and grub boot repair of my and my friends' systems.
 Since I use Manjaro as my preferred OS which is derived from ArchLinux, I am not able to run qt-fsarchiver because it is available only for other distributions.
 What I appreciate of fsarchiver is the ability to perform restores even on smaller devices which no other freely available software has.
 Even I am not so good at bash scripts I by hook or by crook written all the required lines to have a usable program to perform backup, restore and grub repair.
