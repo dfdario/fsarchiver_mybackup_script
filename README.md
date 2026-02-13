@@ -1,11 +1,11 @@
 Description
 
 This script is derived from the two's available at: https://github.com/lexo-ch/fsarchiver-encrypted-full-system-backup-script-with-email-monitoring and https://github.com/AndresDev859674/boot-repair. I would like to thank their developers here. 
-I have taken some parts of their scripts to cover my needs for doing complete backups and restores and grub boot repair of my and my friends' systems.
-Since I use Manjaro as my preferred OS which is derived from ArchLinux, I am not able to run qt-fsarchiver because it is available only for other distributions.
-What I appreciate of fsarchiver is the ability to perform restores even on smaller devices which no other freely available software has.
-Even I am not so good at bash scripts I by hook or by crook written all the required lines to have a usable program to perform backup, restore and grub repair.
-If any other that may do it better I'll appreciate.
+I have taken some parts of their scripts to cover my needs for doing complete backups and restores with fsarchiver and even grub boot repair of my and my friends' systems.
+On all my systems I use Manjaro as my preferred operating system which is a distribution derived from Archlinux. Due to that, I can't use qt-fsarchiver because it was developed for other distributions.
+What I appreciate a lot of fsarchiver is the ability to perform restores even on smaller devices which no other freely available software has.
+Although I'm not very confident in programming with bash, with the help of what's available online and some remids of my past programming activities, I was able to write the lines of code necessary to have a usable program, I hope even for beginners.
+If anyone can improve it I would appreciate it.
 
 Disclaimer
 
@@ -20,6 +20,7 @@ I'm sharing it with you in the hope that you find it useful.
 
 HOWTO RUN IT
 1. Download the script from this site
-2. Make it executable chmod +x fsarchiver:mybackup.sh
+2. Make it executable with command: chmod +x fsarchiver_mybackup.sh
 3. Run with sudo: sudo ./fsarchiver_mybackup.sh
+4. Be very careful in what you are doing because a small mistake may damage your system!
 
