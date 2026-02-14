@@ -19,8 +19,8 @@ I'm sharing it with you in the hope that you find it useful.
 	Dario (Italy)
 
 HOWTO RUN IT
-1. Download fsarchiver_mybackup.sh and fsarchiver_rcconfig from this site and put them in the same directory
-2. Make script executable with command: chmod +x fsarchiver_mybackup.sh
+1. Download fsarchiver_mybackup.sh from this site
+2. Make script executable with the command: chmod +x fsarchiver_mybackup.sh
 3. Run with sudo: sudo ./fsarchiver_mybackup.sh
 4. Be very careful in what you are doing because a small mistake may damage your system!
 
