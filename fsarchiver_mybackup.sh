@@ -1,5 +1,5 @@
 #!/bin/bash
-# Last edited: 20.02 08:19
+# Last edited: 03.07 18:48
 release="v.26.2.14"
 # THIS SCRIPT IS BASED ON THE TWO AVAILABLE AT:
 # https://github.com/lexo-ch/fsarchiver-encrypted-full-system-backup-script-with-email-monitoring
@@ -445,33 +445,33 @@ function user_configuration() {
 		# Other common exclusions
 		# NOTE: Specific Flatpak/Snap cache patterns are redundant, as already covered by 
 		# */cache/* and */.cache/*
-		
+
 		# Lock and socket files
 	#    "*/.X11-unix/*"                 # X11 sockets
 	#    "*/lost+found/*"                # Lost+found directories
 	#    "*/.gvfs/*"                     # GVFS mount points
-		
+
 		# Multimedia caches
 	#    "*/.dvdcss/*"                   # DVD CSS cache
 	#    "*/.mplayer/*"                  # MPlayer cache
 	#    "*/.adobe/Flash_Player/*"       # Flash Player cache
-	   
+
 		# Encrypted directories when unmounted
 	#    "*/.ecryptfs/*"                 # eCryptFS
-		
+
 		# ===========================================
 		# LARGE IMAGE FILES (OPTIONAL - commented out as they can be very large)
 		# ===========================================
-		
+
 		# NOTE: These patterns are commented out, as image files often
 		# contain important data. Uncomment these only if you are sure
 		# these files should not be backed up:
-		
+
 		# "*.iso"                       # ISO image files 
 		# "*.img"                       # Disk image files
 		# "*.vdi"                       # VirtualBox images (can be very large)
 		# "*.vmdk"                      # VMware images (can be very large)
-		
+
 		# Games and Steam (specific caches/logs not covered by */cache/*)
 	#    "*/.steam/steam/logs/*"         # Steam logs
 	#    "*/.steam/steam/dumps/*"        # Steam crash dumps
@@ -512,7 +512,9 @@ function user_configuration() {
 	SCRIPT_INTERRUPTED=false
 	CURRENT_BACKUP_FILE=""
 	CURRENT_FSARCHIVER_PID=""
+}
 
+function getapp() {
 	############################################################
 	# Check for necessary programs and eventually install them
 	############################################################
@@ -523,11 +525,15 @@ function user_configuration() {
 	if ! command -v dialog &> /dev/null; then pkg+=("dialog" ); fi
 
 	if [[ ${#pkg[@]} > 0 ]]; then
+		if ! ping -q -w 1 -c 1 8.8.8.8 > /dev/null; then
+			showError "Could not detect any available network.\nThe program cannot work properly.\n\n   YOU HAVE TO MANUALLY INSTALL: '${pkg[@]}' BEFORE RUNNING IT AGAIN.\n\n${bold}       Program will exit${nc}" 15 60
+			exit 1
+		fi
 		local distro=""
 		if [ -f /etc/os-release ]; then
 			distro=$(awk -F= '$1=="ID" { print $2 }' /etc/os-release | tr -d '"')
 			echo -e "  ${GREEN}Distribution detected in ${root_part}:${NC} ${distro^}"
-			
+
 			local pkg_manager_cmd=""
 			# Distribution-specific settings
 			case "$distro" in
@@ -556,7 +562,7 @@ function user_configuration() {
 			else
 				echo -e "\n${RED}${BOLD}Error: Install of ${pkg[@]} is terminated with errors.${NC}"
 				echo -e "Please review the error messages above to diagnose the issue."
-				showInfo "${red}${bold}UNRECOVERABLE ERROR!${nc}" "\n${red}${bold}Install of ${pkg[@]} is terminated with errors.${nc}\n\n \
+				showInfo "${red}${bold}UNRECOVERABLE ERROR!${nc}" "\n${red}${bold}The installation of ${pkg[@]} is terminated with errors.${nc}\n\n \
 				${bold}Please review the error messages to diagnose the issue.${nc}\n\n${red}${bold}The program will exit in 10 seconds.${nc}" 11 50 10
 				exit 1
 			fi
@@ -1270,7 +1276,7 @@ function regen_initramfs() {
     esac
   fi
   echo -e "${GREEN}${T[initramfs_done]}${RESET}"
-  showInfo "${green}Terminated${nc}" "${green}${T[initramfs_done]}${nc}" 10 40 3
+  showInfo "${green}Terminated${nc}" "${green}initramfs done${nc}" 10 40 3
 }
 
 # Function to clean up on interruption
@@ -1404,18 +1410,23 @@ function showInput() {
 }
 
 function EFIin() {
-	local efipart
+	local efipart retry
 	while true;
 		do
-		efipart="$(select_part-file "\n${bold}Please select the ${red}EFI${nc}${bold} boot Partition${nc}" "-E -i" "c12a7328-f81f-11d2-ba4b-00a0c93ec93b")"
+		if $retry ; then
+			efipart="$(select_part-file "\n${bold}Please select the ${red}EFI${nc}${bold} boot Partition${nc}" "-E -i" "c12a7328-f81f-11d2-ba4b-00a0c93ec93b")"
+		else
+			efipart="$(select_part-file "\n${bold}Please select the ${red}EFI${nc}${bold} boot Partition${nc}" "-E -o" "[0-9]+M")"
+		fi
 		case $? in
 		0 ) 
 			echo $efipart
 			return 0
 		;;
 		1)
-			showYN "\nNothing was selected\nWould you retry?" 10 40
+			showYN "\nNothing was selected\nDo you wanto to retry with a less strictly search?" 10 40
 			if [[ $? -ne 0 ]]; then return 1; fi
+			retry=1
 		;;
 		*)
 			return 1
@@ -1757,7 +1768,7 @@ function find_backup_drive_by_uuid() {
 		# Network drive: search for mount point for the network path
 		local mount_point
 		mount_point=$(findmnt -n -o TARGET -S "$identifier" 2>/dev/null)
-		
+
 		if [[ -n "$mount_point" && -d "$mount_point" ]]; then
 			echo "$mount_point"
 			return 0
@@ -3040,6 +3051,8 @@ if ! cleanup_fsarchiver_mounts true; then
     #     exit 1
     # fi
 fi
+
+getapp # Verify and install required software applications
 
 showYN "${bold}Disclaimer${nc}\n \
 THIS SCRIPT IS BASED ON THE TWO's AVAILABLE AT:
