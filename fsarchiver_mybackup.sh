@@ -1,5 +1,5 @@
 #!/bin/bash
-# Last edited: 03.07 18:48
+# Last edited: 03.07 22:17
 release="v.26.2.14"
 # THIS SCRIPT IS BASED ON THE TWO AVAILABLE AT:
 # https://github.com/lexo-ch/fsarchiver-encrypted-full-system-backup-script-with-email-monitoring
@@ -1410,13 +1410,14 @@ function showInput() {
 }
 
 function EFIin() {
-	local efipart retry
+	local retry=0
 	while true;
 		do
-		if $retry ; then
+		local efipart
+		if [ ! $retry = 1 ]; then
 			efipart="$(select_part-file "\n${bold}Please select the ${red}EFI${nc}${bold} boot Partition${nc}" "-E -i" "c12a7328-f81f-11d2-ba4b-00a0c93ec93b")"
 		else
-			efipart="$(select_part-file "\n${bold}Please select the ${red}EFI${nc}${bold} boot Partition${nc}" "-E -o" "[0-9]+M")"
+			efipart="$(select_part-file "\n${bold}Please select the ${red}EFI${nc}${bold} boot Partition${nc}" "-E -i" "fat")"
 		fi
 		case $? in
 		0 ) 
@@ -1424,9 +1425,15 @@ function EFIin() {
 			return 0
 		;;
 		1)
-			showYN "\nNothing was selected\nDo you wanto to retry with a less strictly search?" 10 40
-			if [[ $? -ne 0 ]]; then return 1; fi
-			retry=1
+			if [ ! $retry = 1 ]; then
+				showYN "\nNothing was selected\nDo you wanto to retry with a less strictly search?" 10 40
+				if [[ $? -ne 0 ]]; then return 1; fi
+				retry=1
+			else
+				showYN "\nNothing was selected\nDo you wanto to retry?" 10 40
+				if [[ $? -ne 0 ]]; then return 1; fi
+				retry=0
+			fi
 		;;
 		*)
 			return 1
