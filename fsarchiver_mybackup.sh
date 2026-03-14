@@ -1,5 +1,5 @@
 #!/bin/bash
-# Last edited: 03.07 22:17
+# Last edited: 03.10 11:41
 release="v.26.2.14"
 # THIS SCRIPT IS BASED ON THE TWO AVAILABLE AT:
 # https://github.com/lexo-ch/fsarchiver-encrypted-full-system-backup-script-with-email-monitoring
@@ -44,8 +44,12 @@ fi
 #####################################################################
 #Check if script is run as root
 if [[ $EUID -ne 0 ]]; then
-   echo -e "${RED}Script must be run as root. Exiting...${NC}"
+   echo -e "${RED}Script must be run as superuser. Exiting...${NC}"
    exit 1
+fi
+if [ `pgrep -c fsarchiver` -gt 1 ]; then
+	echo -e "${RED}Fsarchiver is already running. Only one instance of a program is allowed. Exiting...${NC}"
+	exit 1
 fi
 #
 if [ -f `pwd`/fsarchiver_rcconfig ]; then rm `pwd`/fsarchiver_rcconfig; fi
@@ -2890,7 +2894,7 @@ case the restore process will be interrupted.${nc}" 16 60
 		return 1
 	fi
 	if [[ $PAR_SIZE -lt $ORG_USIZE ]]; then
-		showError "The selected partition size is lower than the required.\n\n${bold}       Program will exit${nc}" 15 50
+		showError "The selected partition size is lower than the required.\nRequested: $ORG_USIZE, available: $PAR_SIZE\nMay be useful to arrange the selected partition to fit the restore size\n\n${bold}       Operation aborted${nc}" 15 60      Program will exit${nc}" 15 50
 		return 1
 	fi
 	REF_SIZE=`echo $(($ORG_USIZE+$ORG_USIZE*10/100))`
