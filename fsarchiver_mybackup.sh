@@ -1,5 +1,5 @@
 #!/bin/bash
-# Last edited: 03.15 10:22
+# Last edited: 03.18 16:49
 release="v.26.3.15"
 # THIS SCRIPT IS BASED ON THE TWO AVAILABLE AT:
 # https://github.com/lexo-ch/fsarchiver-encrypted-full-system-backup-script-with-email-monitoring
@@ -873,8 +873,8 @@ function select_part-file() {
 	for ((i = 0 ; i < "${#device_id[@]}"; i++ ))
 	do
 		devid=`echo "${device_id[i]}"`
-		dinfo=" ${cyan}>>${nc} "`lsblk -lpno KNAME,SIZE,MODEL | grep -E -iw "${devid%%[0-9]*}" | cut -d ' ' -f2- | sed -e 's/^[ \t]*//'`
-		str=`lsblk -lno KNAME,FSTYPE,SIZE,LABEL,PARTTYPENAME | grep -E -i "${device_id[i]}" | tr -s " " | cut -d' ' -f2-`
+		dinfo=" ${blue}on: ${nc}"`lsblk -lpno KNAME,SIZE,MODEL | grep -E -iw "${devid%%[0-9]*}" | cut -d ' ' -f2- | sed -e 's/^[ \t]*//'` 
+		str="${blue}size: ${nc}"`lsblk -lno KNAME,SIZE,FSTYPE,LABEL | grep -E -i "${device_id[i]}" | tr -s " " | cut -d' ' -f2-`
 		str=${str}${dinfo}
 		arr_parameters+=("${devid}" "${str}")
 	done
