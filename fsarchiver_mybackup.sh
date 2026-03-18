@@ -725,7 +725,7 @@ function select_bkup_d-f() {
 		local ARR_PARAMETER=()
 		local DIR_ARR=()
 		local LIST_DIR=()
-		#CURR_DIR=${CURR_DIR%*/}
+		CURR_DIR=${CURR_DIR%*/}
 		LIST_DIR=(`sh -c "find '${CURR_DIR}' -maxdepth 1 $tipo | sort"`)
 		LIST_DIR=("${LIST_DIR[@]:1}")  # Remove the directory in which list is done
 		for dir in "${LIST_DIR[@]}"; do    # list directories in the form "/tmp/dirname/"
