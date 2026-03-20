@@ -1,5 +1,5 @@
 #!/bin/bash
-# Last edited: 03.18 16:49
+# Last edited: 03.20 22:17
 release="v.26.3.15"
 # THIS SCRIPT IS BASED ON THE TWO AVAILABLE AT:
 # https://github.com/lexo-ch/fsarchiver-encrypted-full-system-backup-script-with-email-monitoring
@@ -818,9 +818,8 @@ done
 #####################################################################
 # Input:
 # $1 Containing the prompt to show in menu
-# $2 Containing "-E -i" for include or "-E -iv" to exclude
-# $3 Containing for example "sdx" or "sdx|sdy" 
-#    or even "/dev/sdx|/dev/sdy", etc always combined with $2
+# $2 Containing "grep -E -i sdx" or "sdx|sdy " for include or "grep -E -iv sdx" or "sdx|sdy" to exclude
+#    or even "/dev/sdx|/dev/sdy"
 #    for include or exclude HD. /dev/ and X will be automatically removed
 # Output: 
 #    Selected disk
@@ -829,16 +828,23 @@ function select_disk() {
 	#Function to choose a disk
 	#
 	IFS=$'\ \t\n' # set IFS to its default value
-	local arr_disk=() dsk=() dv disk 
+	local device_id=() arr_disk=() dsk=() devid=() dv
 	# list all USB devices, excluding root & hubs
-	dsk=`(lsblk -l -o TYPE,PATH,SIZE,MODEL | grep -E -i 'disk' | cut -d' ' -f2-)`
-	if [ "${2}" ]; then 
-		if [[ $3 = *"/dev/"* ]]; then dv="$(echo $3 | sed 's|/dev/||g' | sed 's/[0-9]//g' )"; else dv=$3; fi
-		dsk=$(printf '%s\n' "${dsk[@]}" | grep $2 $dv)
+	if [[ $2 ]]; then
+		if [[ $2 = *"/dev/"* ]]; then dv="$(echo $2 | sed 's|/dev/||g' | sed 's/[0-9]//g' )"; else dv=$2; fi
+		device_id=(`lsblk -lpno TYPE,KNAME | grep -E -iw disk | cut -d ' ' -f2- | sed 's|/dev/||g' | eval $dv`)
+	else
+		device_id=(`lsblk -lpno TYPE,KNAME | grep -E -iw disk | cut -d ' ' -f2- | sed 's|/dev/||g'`)
 	fi
-	arr_disk=$(printf '%s\n' "${dsk[@]}" | sed -e 's/\(\/dev\/sd[a-z]\) \(.*\)./\1\n \2\n/g')
 	IFS=$'\n'
-	disk="$(showMenu  "Disk choice" "FSarchiver-Backup" "$1" 18 60 5 ${arr_disk[@]})"
+	for ((i = 0 ; i < "${#device_id[@]}"; i++ ))
+	do
+		devid=`echo "${device_id[i]}"`
+		dsk="${blue}size: ${nc}"`lsblk -lno TYPE,KNAME,SIZE,MODEL | grep -E -iw disk | grep -E -i "${device_id[i]}" | tr -s " " | cut -d' ' -f2-`
+		arr_disk+=("${devid}" "${dsk}")
+	done
+	IFS=$'\n'
+	disk=$(showMenu  "Disk choice" "FSarchiver-Backup" "$1" 18 60 5 ${arr_disk[@]})
 	if [[ ! "${disk}" || $? -ne 0 ]]; then
 		return 1
 	fi
@@ -1228,7 +1234,7 @@ it needs to copy: \n\
 			do
 			local target_disk=""
 			echo -e "${YELLOW}Please choose the disk to install GRUB onto (usually the main disk, not a partition):${NC}"
-			target_disk=$(select_disk "Please choose the disk to install GRUB onto (usually the main disk, not a partition)")
+			target_disk=$(select_disk "Please choose the disk to install GRUB onto (usually the main disk, not a partition)" "grep -E -iv ram")
 			if [[ $? -ne 0 || ! "${hdu}" ]]; then
 				showYN "No disk selected\nWould you like to retry?" 10 40
 				if [[ $? -ne 0 ]]; then
@@ -2871,7 +2877,7 @@ function main_restore() {
 			rdisk="$s_device"
 			
 		fi
-		hdu=$(select_disk "\nPlease select the DISK where to restore ${bold}${BK_FILE##*/}${nc}\n(original size: ${bold}${red}`numfmt --to=iec $ORG_USIZE`${nc})" "-E -iv" "($rdisk)") # source disk and running disk excluded
+		hdu=$(select_disk "\nPlease select the DISK where to restore ${bold}${BK_FILE##*/}${nc}\n(original size: ${bold}${red}`numfmt --to=iec $ORG_USIZE`${nc})" "grep -E -iv '($rdisk|ram)'") # source disk and running disk excluded
 		if [[ $? -ne 0 || ! "${hdu}" ]]; then
 			showYN "No disk selected\nWould you like to retry?" 10 40
 			if [[ $? -ne 0 ]]; then
